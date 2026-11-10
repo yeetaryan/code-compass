@@ -135,8 +135,6 @@ export const profiles = pgTable(
     /** Set once the minimum onboarding fields are present; discovery only lists onboarded profiles. */
     onboardedAt: tstz("onboarded_at"),
     avatarVersion: integer("avatar_version").notNull().default(0),
-    /** Untouched copy of the original Supabase row (migration audit trail). Never returned by the API. */
-    legacy: jsonb("legacy"),
     createdAt: tstz("created_at").notNull().defaultNow(),
     updatedAt: tstz("updated_at").notNull().defaultNow(),
   },
@@ -236,3 +234,88 @@ export const apiRateLimits = pgTable("api_rate_limits", {
   count: integer("count").notNull(),
   windowStart: bigint("window_start", { mode: "number" }).notNull(),
 });
+
+/* ───────────────────────── Historical profile recovery ───────────────────────── */
+
+export const recoveryStatusEnum = pgEnum("recovery_status", ["pending", "restored", "dismissed", "claimed", "empty"]);
+
+/** Normalised fields of a v1 (Supabase) profile, as the migration understood them. */
+export type SnapshotData = {
+  name: string | null;
+  yearOfStudy: string | null;
+  skills: string[];
+  skillsKey: string[];
+  interests: string[];
+  interestsKey: string[];
+  whatsapp: string | null;
+  whatsappVisible: boolean;
+  xHandle: string | null;
+  xVisible: boolean;
+};
+
+/**
+ * One row per migrated v1 account. Holds the original profile so it can be restored, undone, or (after proving
+ * ownership of the old email) moved to a different account. Never returned raw by the API.
+ */
+export const legacyProfiles = pgTable(
+  "legacy_profiles",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Email of the v1 account, lower-cased — only used to match a verified manual recovery. */
+    sourceEmail: text("source_email").notNull(),
+    hasProfile: boolean("has_profile").notNull(),
+    data: jsonb("data").$type<SnapshotData>(),
+    /** Untouched original Supabase row (audit trail). */
+    raw: jsonb("raw"),
+    source: text("source").notNull(),
+    sourceCreatedAt: tstz("source_created_at"),
+    sourceUpdatedAt: tstz("source_updated_at"),
+    importedAt: tstz("imported_at").notNull().defaultNow(),
+    status: recoveryStatusEnum("status").notNull().default("pending"),
+    /** Account the snapshot was applied to (the same account, or another one after a verified manual recovery). */
+    restoredTo: text("restored_to").references(() => users.id, { onDelete: "set null" }),
+    restoredFields: text("restored_fields").array().notNull().default(sql`'{}'::text[]`),
+    restoredVia: text("restored_via"),
+    restoredAt: tstz("restored_at"),
+    acknowledgedAt: tstz("acknowledged_at"),
+    updatedAt: tstz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("legacy_profiles_source_email_uidx").on(t.sourceEmail), index("legacy_profiles_restored_to_idx").on(t.restoredTo)],
+);
+
+/** Email codes for manual recovery into a different account. Codes are stored hashed. */
+export const profileRecoveryCodes = pgTable(
+  "profile_recovery_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    requesterId: text("requester_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    legacyUserId: text("legacy_user_id")
+      .notNull()
+      .references(() => legacyProfiles.userId, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    expiresAt: tstz("expires_at").notNull(),
+    verifiedAt: tstz("verified_at"),
+    consumedAt: tstz("consumed_at"),
+    createdAt: tstz("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("profile_recovery_codes_requester_idx").on(t.requesterId, t.createdAt)],
+);
+
+/** Audit trail of recovery actions. Never stores passwords, codes or tokens. */
+export const profileRecoveryEvents = pgTable(
+  "profile_recovery_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    legacyUserId: text("legacy_user_id"),
+    event: text("event").notNull(),
+    detail: jsonb("detail"),
+    createdAt: tstz("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("profile_recovery_events_user_idx").on(t.userId, t.createdAt)],
+);

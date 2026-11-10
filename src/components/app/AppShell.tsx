@@ -10,6 +10,7 @@ import { authClient } from "@/lib/auth-client";
 import { useMe } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { Logo } from "./Logo";
+import { WelcomeBackBanner } from "./WelcomeBack";
 
 const NAV = [
   { to: "/discover", label: "Discover" },
@@ -105,6 +106,11 @@ export function AppShell() {
         </div>
       </header>
       <main id="main" className="flex-1">
+        {me.recovery.state === "restored" && !me.recovery.acknowledged && (
+          <div className="container-page pt-6">
+            <WelcomeBackBanner recovery={me.recovery} />
+          </div>
+        )}
         <Outlet />
       </main>
       <footer className="border-t border-line">

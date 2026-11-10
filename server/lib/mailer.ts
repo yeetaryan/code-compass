@@ -1,3 +1,4 @@
+import nodemailer, { type Transporter } from "nodemailer";
 import { env } from "../env.js";
 
 type Mail = { to: string; subject: string; text: string; html: string };
@@ -6,9 +7,12 @@ type Mail = { to: string; subject: string; text: string; html: string };
 export const testOutbox: Mail[] = [];
 
 /**
- * Sends transactional email through Resend's HTTP API (no SDK needed).
- * Without RESEND_API_KEY, emails are logged instead — fine for local development,
- * but password reset will not reach real users until a key and a verified domain are configured.
+ * Sends transactional email (password reset, email confirmation).
+ * Provider order: Resend HTTP API if RESEND_API_KEY is set, otherwise SMTP if SMTP_USER/SMTP_PASS are set
+ * (e.g. a Gmail account with an App Password — works without owning a domain).
+ * With neither, emails are only logged in development and NOT sent in production.
+ * Delivery failures are logged, never thrown: a thrown error would make "reset password" answer differently
+ * for existing and unknown emails, which would reveal who has an account.
  */
 export async function sendMail(mail: Mail): Promise<void> {
   const e = env();
@@ -16,23 +20,53 @@ export async function sendMail(mail: Mail): Promise<void> {
     testOutbox.push(mail);
     return;
   }
-  if (!e.RESEND_API_KEY) {
-    if (e.NODE_ENV === "production") {
-      console.error(`[mail] RESEND_API_KEY missing — email "${mail.subject}" to ${redact(mail.to)} was NOT sent`);
-    } else {
-      console.info(`[mail:dev] to=${mail.to} subject="${mail.subject}"\n${mail.text}`);
+  if (e.RESEND_API_KEY) {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${e.RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: e.EMAIL_FROM ?? "Code Compass <onboarding@resend.dev>", to: [mail.to], subject: mail.subject, text: mail.text, html: mail.html }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error(`[mail] Resend responded ${res.status} for ${redact(mail.to)}: ${body.slice(0, 300)}`);
     }
     return;
   }
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${e.RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: e.EMAIL_FROM, to: [mail.to], subject: mail.subject, text: mail.text, html: mail.html }),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error(`[mail] Resend responded ${res.status} for ${redact(mail.to)}: ${body.slice(0, 300)}`);
+  if (e.SMTP_USER && e.SMTP_PASS) {
+    try {
+      const info = await smtp(e).sendMail({
+        from: e.EMAIL_FROM ?? `Code Compass <${e.SMTP_USER}>`,
+        to: mail.to,
+        subject: mail.subject,
+        text: mail.text,
+        html: mail.html,
+      });
+      console.info(`[mail] sent "${mail.subject}" to ${redact(mail.to)} (${info.messageId})`);
+    } catch (err) {
+      console.error(`[mail] SMTP failed for ${redact(mail.to)}: ${(err as Error).message}`);
+    }
+    return;
   }
+  if (e.NODE_ENV === "production") {
+    console.error(`[mail] no email provider configured — "${mail.subject}" to ${redact(mail.to)} was NOT sent`);
+  } else {
+    console.info(`[mail:dev] to=${mail.to} subject="${mail.subject}"\n${mail.text}`);
+  }
+}
+
+let transport: Transporter | undefined;
+function smtp(e: ReturnType<typeof env>): Transporter {
+  transport ??= nodemailer.createTransport({
+    host: e.SMTP_HOST,
+    port: e.SMTP_PORT,
+    secure: e.SMTP_PORT === 465, // implicit TLS on 465, STARTTLS (required) otherwise
+    requireTLS: e.SMTP_PORT !== 465 && !["localhost", "127.0.0.1"].includes(e.SMTP_HOST),
+    auth: { user: e.SMTP_USER!, pass: e.SMTP_PASS! },
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 15_000,
+  });
+  return transport;
 }
 
 const redact = (email: string) => email.replace(/^(.).*(@.*)$/, "$1***$2");

@@ -18,7 +18,7 @@ Free-plan history is short, so the weekly `pg_dump` is the real backup.
 ## Taking a backup manually
 
 Use the **direct** (non-pooled) Neon connection string for dumps, and a `pg_dump` whose major version is ≥ the
-server's (Neon Postgres 17 → `pg_dump` 17).
+server's (Code Compass's Neon project runs **Postgres 18**, so use `pg_dump` 18).
 
 ```bash
 export BACKUP_URL="postgresql://…@ep-xxx.region.aws.neon.tech/neondb?sslmode=require"   # direct host, no -pooler
@@ -78,3 +78,6 @@ Nothing in the app is Neon-specific beyond `DATABASE_URL`.
   SHA-256: `fc20f7c1a3751471a731299adca7b0909db36ec4641eb597d5b366047d4908ce`.
 * It includes Supabase internals and the auth audit log (IP addresses). Store it encrypted and offline; don't upload it to the repo, Vercel or Neon.
 * To inspect it without restoring: `npm run legacy:migrate -- --dump <file> --dry-run`.
+* For a fresh copy of the live v1 data without installing `pg_dump`: `SUPABASE_DB_URL=… npm run legacy:export -- --out private/fresh.backup.gz`
+  (read-only, one consistent snapshot, output identical to `pg_dump` for the four tables the migration uses), then
+  `npm run legacy:compare -- --old <original> --new private/fresh.backup.gz` to see what changed (counts, ids, dates only).

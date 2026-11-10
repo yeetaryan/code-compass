@@ -1,8 +1,17 @@
 # Deployment — Vercel + Neon
 
-Nothing here has been run against your real accounts yet: the build environment had no access to GitHub, Vercel,
-Neon or Supabase. Every step was rehearsed locally (production build, production-mode handler, migrations, legacy
-import, verification, browser tests). Steps marked **⚠︎** change shared state; do them in order.
+## Current deployment (November 2026)
+
+| | |
+|---|---|
+| Vercel project | `codecompass` (account `itsaryan1015-3865`, Hobby). Production branch `main`; previews from any other branch |
+| Production URL | https://codecompass-eta.vercel.app (`code-compass-mu.vercel.app` belongs to the v1 project in another Vercel account and will redirect here at cutover) |
+| Functions | one Node function (`api/index.ts`), region `sin1`, Node 22 |
+| Neon | project `code-compass`, Postgres 18, `ap-southeast-1`; branch `main` = production, `dev` = previews + local development |
+| Email | Gmail SMTP with an App Password (`SMTP_USER`/`SMTP_PASS`), or Resend once a domain exists. Without either, reset/recovery emails are off and the UI says so |
+| Deploy | push to `main` → Production; push any other branch → Preview (protected by Vercel login) |
+
+Local helper scripts used for the first deployment live in `deploy-local/` on the deploying machine (git-ignored).
 
 ## 0. What you need
 
@@ -62,8 +71,7 @@ All checks must pass, including the real sign-in with **your own** pre-existing 
    | `DATABASE_URL` | Neon **main** pooled URL | Neon **dev** pooled URL |
    | `BETTER_AUTH_SECRET` | `openssl rand -base64 32` | a *different* value |
    | `APP_URL` | `https://code-compass-mu.vercel.app` (or your domain) | your preview URL or a stable preview alias |
-   | `RESEND_API_KEY` | from Resend | same or a test key |
-   | `EMAIL_FROM` | `Code Compass <hello@yourdomain>` | same |
+   | `SMTP_USER` / `SMTP_PASS` | Gmail address + App Password (or `RESEND_API_KEY` + `EMAIL_FROM` with a verified domain) | same |
    | `REQUIRE_EMAIL_VERIFICATION` | `false` until email works, then optionally `true` | `false` |
 
    Never set `NODE_ENV` — Vercel sets it.
@@ -103,7 +111,7 @@ project's Root Directory is the repo root and that `api/index.ts` was detected u
 
 * **Close the old data leak.** The old app's anon key is public and its RLS lets anyone read every profile (including hidden WhatsApp numbers). After cutover, in Supabase: drop the `"Users can view all profiles"` policy (or pause the project). Do this as soon as v2 is live.
 * **Custom domain:** add it in Vercel → Domains, then update `APP_URL` (and `EMAIL_FROM` domain) and redeploy.
-* **Email:** verify your domain in Resend (DNS records). The shared `onboarding@resend.dev` sender is for testing only — verify a domain before relying on password reset.
+* **Email:** Gmail SMTP works without a domain (≈500 emails/day; use a dedicated Gmail account so your personal address isn't the sender). For a branded sender later, verify a domain in Resend and set `RESEND_API_KEY` + `EMAIL_FROM` — Resend takes precedence when both are set.
 * **Monitoring:** point an uptime monitor (e.g. UptimeRobot, Better Stack) at `/api/health/live` — **not** `/api/health`, which wakes the database every ping and burns Neon compute hours. Vercel → Logs shows API errors (each has a `requestId` that matches the error the user saw).
 * **Backups:** see [DATABASE_BACKUP.md](DATABASE_BACKUP.md).
 

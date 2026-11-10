@@ -1,10 +1,11 @@
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import bcrypt from "bcryptjs";
+import { waitUntil } from "@vercel/functions";
 import { betterAuth } from "better-auth";
 import { hashPassword, verifyPassword } from "better-auth/crypto";
 import { db } from "./db/client.js";
 import { profiles, accounts, sessions, users, verifications } from "./db/schema.js";
-import { env, trustedOrigins } from "./env.js";
+import { emailConfigured, env, trustedOrigins } from "./env.js";
 import { actionEmail, sendMail } from "./lib/mailer.js";
 import { consume } from "./lib/rate-limit.js";
 
@@ -47,7 +48,7 @@ function createAuth() {
       },
     },
     emailVerification: {
-      sendOnSignUp: Boolean(e.RESEND_API_KEY) || e.REQUIRE_EMAIL_VERIFICATION,
+      sendOnSignUp: emailConfigured(e) || e.REQUIRE_EMAIL_VERIFICATION,
       autoSignInAfterVerification: true,
       expiresIn: 24 * 60 * 60,
       sendVerificationEmail: async ({ user, url }) => {
@@ -97,6 +98,9 @@ function createAuth() {
       },
     },
     advanced: {
+      // Send emails after the response: requests for existing and unknown addresses take the same time
+      // (no account enumeration by timing). On Vercel, waitUntil keeps the function alive until the send finishes.
+      backgroundTasks: { handler: (p) => waitUntil(p) },
       database: { generateId: () => crypto.randomUUID() },
       ipAddress: { ipAddressHeaders: e.IP_HEADERS.split(",").map((h) => h.trim()) },
       cookiePrefix: "cc",

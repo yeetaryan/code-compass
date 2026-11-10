@@ -16,6 +16,7 @@ import { db } from "../db/client.js";
 import { avatars, profiles, teamJoinRequests, teams, users } from "../db/schema.js";
 import { AppError, body, currentUser, rateLimit, requireAuth, type AppEnv } from "../lib/http.js";
 import { meetsOnboarding, toMyProfile } from "../lib/profile-view.js";
+import { recoveryState } from "../lib/recovery.js";
 
 export const me = new Hono<AppEnv>();
 me.use("*", requireAuth);
@@ -31,6 +32,9 @@ async function loadProfile(userId: string, name: string) {
 async function buildMe(userId: string): Promise<Me> {
   const [u] = await db().select().from(users).where(eq(users.id, userId)).limit(1);
   if (!u) throw new AppError(401, "unauthenticated", "Please sign in again");
+  await loadProfile(u.id, u.name);
+  // Restores a pending v1 profile automatically (keyed by the preserved user id), then reports what happened.
+  const recovery = await recoveryState(u.id);
   const p = await loadProfile(u.id, u.name);
   const [pending] = await db()
     .select({ n: sql<number>`count(*)::int` })
@@ -41,6 +45,7 @@ async function buildMe(userId: string): Promise<Me> {
     user: { id: u.id, email: u.email, name: u.name, emailVerified: u.emailVerified, createdAt: u.createdAt.toISOString() },
     profile: toMyProfile(p),
     pendingRequestsToReview: pending?.n ?? 0,
+    recovery,
   };
 }
 
@@ -93,7 +98,7 @@ me.put("/profile", rateLimit("profile-write", { window: 60, max: 30 }), async (c
     websiteUrl: normalizeWebUrl(input.websiteUrl, "websiteUrl"),
   };
 
-  const onboardedNow = meetsOnboarding({ name: input.name, skills: skills.labels, roles: input.roles });
+  const onboardedNow = meetsOnboarding({ name: input.name, skills: skills.labels, roles: input.roles, interests: interests.labels });
   if (input.preferredContact) {
     const has: Record<string, boolean> = {
       email: true,

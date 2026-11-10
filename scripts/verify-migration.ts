@@ -53,22 +53,35 @@ check("email verification state preserved", verifiedMismatch === 0, `${verifiedM
 check("bcrypt password hashes preserved byte-for-byte", hashMismatch === 0, `${hashMismatch} mismatches`);
 check("signup timestamps preserved (ms precision)", tsMismatch === 0, `${tsMismatch} mismatches`);
 
-// 2. Profiles
-const tProfiles = await q<{ user_id: string; whatsapp_visible: boolean; x_visible: boolean; created_at: Date; legacy: unknown }>(sql`
-  SELECT user_id, whatsapp_visible, x_visible, created_at, legacy FROM profiles`);
+// 2. Profiles + recovery snapshots
+const tProfiles = await q<{ user_id: string; whatsapp: string | null; whatsapp_visible: boolean; x_handle: string | null; x_visible: boolean; created_at: Date }>(sql`
+  SELECT user_id, whatsapp, whatsapp_visible, x_handle, x_visible, created_at FROM profiles`);
 const pById = new Map(tProfiles.map((p) => [p.user_id, p]));
-let pMissing = 0, visMismatch = 0, pTs = 0, legacyMissing = 0;
+const snaps = await q<{ user_id: string; source_email: string; has_profile: boolean; raw: Record<string, unknown> | null; status: string; restored_to: string | null }>(sql`
+  SELECT user_id, source_email, has_profile, raw, status, restored_to FROM legacy_profiles`);
+const sById = new Map(snaps.map((x) => [x.user_id, x]));
+let pMissing = 0, visMismatch = 0, pTs = 0, rawMissing = 0;
 for (const s of srcProfiles) {
   const t = pById.get(s.id!);
   if (!t) { pMissing++; continue; }
-  if (t.whatsapp_visible !== (s.whatsapp_visible !== "f") || t.x_visible !== (s.twitter_visible !== "f")) visMismatch++;
+  // visibility travels with the value: compare wherever the contact was restored
+  if ((t.whatsapp && t.whatsapp_visible !== (s.whatsapp_visible !== "f")) || (t.x_handle && t.x_visible !== (s.twitter_visible !== "f"))) visMismatch++;
   if (Math.abs(new Date(t.created_at).getTime() - new Date(s.created_at!).getTime()) >= 1) pTs++;
-  if (!t.legacy) legacyMissing++;
+  const snap = sById.get(s.id!);
+  if (!snap?.raw || snap.raw.id !== s.id) rawMissing++;
 }
 check("every source profile migrated", pMissing === 0, `${srcProfiles.length - pMissing}/${srcProfiles.length}`);
 check("visibility choices preserved", visMismatch === 0, `${visMismatch} mismatches`);
 check("profile timestamps preserved", pTs === 0, `${pTs} mismatches`);
-check("original rows kept in profiles.legacy", legacyMissing === 0, `${legacyMissing} missing`);
+const snapMissing = srcUsers.filter((u) => !sById.has(u.id!)).length;
+const emailWrong = srcUsers.filter((u) => sById.get(u.id!) && sById.get(u.id!)!.source_email !== u.email!.toLowerCase()).length;
+check("every v1 account has a recovery snapshot", snapMissing === 0, `${srcUsers.length - snapMissing}/${srcUsers.length}`);
+check("snapshot emails match the v1 accounts", emailWrong === 0, `${emailWrong} mismatches`);
+check("original v1 rows kept in legacy_profiles.raw", rawMissing === 0, `${rawMissing} missing`);
+const noProfile = srcUsers.filter((u) => !srcProfiles.some((p) => p.id === u.id)).map((u) => u.id!);
+check("accounts without a v1 profile are marked empty", noProfile.every((id) => sById.get(id)?.status === "empty" && !sById.get(id)?.has_profile), `${noProfile.length} such accounts`);
+const statusCounts = snaps.reduce<Record<string, number>>((m, x) => ((m[x.status] = (m[x.status] ?? 0) + 1), m), {});
+check("snapshot status summary", true, JSON.stringify(statusCounts));
 const usersWithoutProfile = await q<{ n: string }>(sql`SELECT count(*) n FROM users u LEFT JOIN profiles p ON p.user_id = u.id WHERE p.user_id IS NULL`);
 check("every user has a profile row", Number(usersWithoutProfile[0].n) === 0, `${usersWithoutProfile[0].n} without`);
 

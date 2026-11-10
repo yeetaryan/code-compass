@@ -9,6 +9,11 @@
  *   re-run against a fresher dump right before cutover.
  * - Writes everything in one transaction; any error rolls back the whole run.
  * - Non-local targets require --confirm-host <hostname> as an explicit approval step.
+ * - Every v1 account also gets a legacy_profiles snapshot (used for "Welcome back" + undo + verified manual recovery).
+ *   By default v1 profiles are restored into the live profile at import (they show in Discover at launch);
+ *   with --defer-profiles they stay "pending" and are restored the first time the owner signs in.
+ * - Re-running with a fresher dump refreshes only snapshots that are still pending; restored profiles are never
+ *   overwritten by older data.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { inArray, sql } from "drizzle-orm";
@@ -28,7 +33,7 @@ const dumpPath = arg("dump");
 const dryRun = flag("dry-run");
 const reportDir = arg("report-dir") ?? "./migration-output";
 if (!dumpPath) {
-  console.error("Usage: legacy:migrate --dump <file.backup[.gz]> [--dry-run] [--confirm-host <host>] [--report-dir dir]");
+  console.error("Usage: legacy:migrate --dump <file.backup[.gz]> [--dry-run] [--defer-profiles] [--confirm-host <host>] [--report-dir dir]");
   process.exit(1);
 }
 
@@ -39,7 +44,8 @@ const source = {
   profiles: copyRows(dump, "public.profiles").rows,
   teams: copyRows(dump, "public.teams").rows,
 };
-const p = plan(source);
+const defer = flag("defer-profiles");
+const p = plan(source, { publish: !defer, source: arg("source") ?? "supabase-v1" });
 
 console.log("Source:", { users: source.users.length, identities: source.identities.length, profiles: source.profiles.length, teams: source.teams.length });
 console.log("Plan:", p.stats);
@@ -91,6 +97,25 @@ const result = await db.transaction(async (tx) => {
   const insProfiles = profiles.length
     ? await tx.insert(schema.profiles).values(profiles).onConflictDoNothing().returning({ id: schema.profiles.userId })
     : [];
+  const snapshots = p.snapshots.filter((x) => owned.has(x.userId));
+  const insSnapshots = snapshots.length
+    ? await tx
+        .insert(schema.legacyProfiles)
+        .values(snapshots)
+        .onConflictDoUpdate({
+          target: schema.legacyProfiles.userId,
+          set: {
+            data: sql`excluded.data`,
+            raw: sql`excluded.raw`,
+            hasProfile: sql`excluded.has_profile`,
+            sourceUpdatedAt: sql`excluded.source_updated_at`,
+            source: sql`excluded.source`,
+            updatedAt: new Date(),
+          },
+          setWhere: sql`${schema.legacyProfiles.status} = 'pending' AND excluded.source_updated_at > ${schema.legacyProfiles.sourceUpdatedAt}`,
+        })
+        .returning({ id: schema.legacyProfiles.userId })
+    : [];
   const teams = p.teams.filter((t) => owned.has(t.ownerId)) as (typeof schema.teams.$inferInsert)[];
   const insTeams = teams.length ? await tx.insert(schema.teams).values(teams).onConflictDoNothing().returning({ id: schema.teams.id }) : [];
   if (insTeams.length) {
@@ -100,12 +125,14 @@ const result = await db.transaction(async (tx) => {
       .onConflictDoNothing();
   }
 
-  const counts = await tx.execute<{ users: string; accounts: string; profiles: string; teams: string }>(sql`
+  const counts = await tx.execute<{ users: string; accounts: string; profiles: string; teams: string; snapshots: string }>(sql`
     SELECT (SELECT count(*) FROM users) users, (SELECT count(*) FROM accounts) accounts,
-           (SELECT count(*) FROM profiles) profiles, (SELECT count(*) FROM teams) teams`);
+           (SELECT count(*) FROM profiles) profiles, (SELECT count(*) FROM teams) teams,
+           (SELECT count(*) FROM legacy_profiles) snapshots`);
 
   return {
     inserted: { users: inserted.size, accounts: insAccounts.length, profiles: insProfiles.length, teams: insTeams.length },
+    snapshotsWritten: insSnapshots.length,
     alreadyPresent: { users: owned.size - inserted.size },
     emailClashes,
     targetTotals: counts.rows[0],

@@ -1,14 +1,17 @@
 /**
  * Seeds a LOCAL database with fictional demo people and teams for development and screenshots.
- * Refuses to run against non-local hosts. All demo accounts use the password "demo-password".
+ * Refuses to run against non-local hosts unless --allow-host <exact hostname> is given (for a dev/preview branch only). All demo accounts use the password "demo-password".
  *
  *   DATABASE_URL=postgres://postgres@localhost:5432/cc_demo npx tsx scripts/seed-demo.ts
  */
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is not set");
-if (!["localhost", "127.0.0.1"].includes(new URL(url).hostname)) {
-  console.error("seed-demo only runs against a local database.");
+const host = new URL(url).hostname;
+const allowIdx = process.argv.indexOf("--allow-host");
+const allowed = allowIdx !== -1 && process.argv[allowIdx + 1] === host;
+if (!["localhost", "127.0.0.1"].includes(host) && !allowed) {
+  console.error(`seed-demo only runs against a local database, or a non-production one named with --allow-host ${host}. Never use it on production.`);
   process.exit(2);
 }
 Object.assign(process.env, { BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET ?? "demo-secret-demo-secret-demo-secret-000", APP_URL: process.env.APP_URL ?? "http://localhost:5173" });

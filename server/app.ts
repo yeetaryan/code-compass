@@ -6,10 +6,11 @@ import { requestId } from "hono/request-id";
 import { secureHeaders } from "hono/secure-headers";
 import { auth } from "./auth.js";
 import { db } from "./db/client.js";
-import { env, trustedOrigins } from "./env.js";
+import { emailConfigured, env, trustedOrigins } from "./env.js";
 import { AppError, isConnectionError, onError, sessionMiddleware, type AppEnv } from "./lib/http.js";
 import { pruneRateLimits } from "./lib/rate-limit.js";
 import { me } from "./routes/me.js";
+import { recovery } from "./routes/recovery.js";
 import { avatarRoutes, people } from "./routes/people.js";
 import { teamRoutes } from "./routes/teams.js";
 
@@ -44,7 +45,7 @@ export function createApp() {
   app.get("/config", (c) => {
     const e = env();
     c.header("Cache-Control", "public, max-age=300");
-    return c.json({ emailEnabled: Boolean(e.RESEND_API_KEY) || e.NODE_ENV !== "production", supportUrl: e.SUPPORT_URL ?? null });
+    return c.json({ emailEnabled: emailConfigured(e) || e.NODE_ENV !== "production", supportUrl: e.SUPPORT_URL ?? null });
   });
 
   /* Readiness — checks DB reachability and latency (wakes a suspended Neon compute). */
@@ -78,6 +79,7 @@ export function createApp() {
   app.route("/people", people);
   app.route("/avatars", avatarRoutes);
   app.route("/teams", teamRoutes);
+  app.route("/recovery", recovery);
 
   app.notFound((c) => c.json({ error: { code: "not_found", message: "No such endpoint", requestId: c.get("requestId") } }, 404));
   app.onError(onError);

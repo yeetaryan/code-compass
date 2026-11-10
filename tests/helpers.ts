@@ -29,6 +29,8 @@ export const LEGACY = {
   hidden: { id: "aaaaaaaa-0000-4000-8000-000000000002", email: "hidden@legacy.test", password: "longerpass1", whatsapp: "9876543210" },
   unconfirmed: { id: "aaaaaaaa-0000-4000-8000-000000000003", email: "unconfirmed@legacy.test", password: "unconfirmed1" },
   noprofile: { id: "aaaaaaaa-0000-4000-8000-000000000004", email: "noprofile@legacy.test", password: "noprofile1" },
+  /** never confirmed their email in v1, but had a full profile — used for manual recovery into a new account */
+  old: { id: "aaaaaaaa-0000-4000-8000-000000000005", email: "old@legacy.test", password: "oldpassword1" },
 };
 const supabaseHash = (pw: string) => bcrypt.hashSync(pw, 4).replace(/^\$2b\$/, "$2a$");
 
@@ -39,6 +41,7 @@ export function writeFixtureDump(path: string) {
     [LEGACY.hidden, T],
     [LEGACY.unconfirmed, null],
     [LEGACY.noprofile, T],
+    [LEGACY.old, null],
   ] as const;
   const userRows = users.map(([u, confirmed]) =>
     [u.id, u.email, supabaseHash(u.password), confirmed ?? "\\N", JSON.stringify({ name: "Meta " + u.email.split("@")[0] }), T, T, "\\N", "f", "f"].join("\t"),
@@ -48,6 +51,7 @@ export function writeFixtureDump(path: string) {
     [LEGACY.six.id, "Six Legacy", "3rd year", "Js , react , node.js", "Web dev and AI/Ml", "+919999999999", "@sixdev", "t", "t", T, T],
     [LEGACY.hidden.id, "Hidden Contact", "2nd Year", "Python, pytorch", "AI/ML", LEGACY.hidden.whatsapp, "https://x.com/hiddenx", "f", "f", T, T],
     [LEGACY.unconfirmed.id, "Never Confirmed", "\\N", "\\N", "\\N", "\\N", "\\N", "t", "t", T, T],
+    [LEGACY.old.id, "Old Timer", "4th year", "Rust, Go", "Systems", "+447700900999", "oldx", "t", "f", T, T],
   ].map((r) => r.join("\t"));
   const dump = `--
 -- PostgreSQL database cluster dump

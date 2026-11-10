@@ -44,7 +44,8 @@ targets require `--confirm-host <hostname>`. A JSON report (row ids only, no ema
 | `whatsapp_visible`, `twitter_visible` | `whatsapp_visible`, `x_visible` | **User choices preserved** |
 | — | `email_visible` | `false` (email was never shown in v1) |
 | name + (skills or interests) present | `onboarded_at = updated_at` | Same rule as v1's Browse filter, so the same 31 people stay discoverable |
-| whole original row | `profiles.legacy` jsonb | Audit trail; never returned by the API |
+| whole original row | `legacy_profiles.raw` jsonb | Audit trail + basis for profile recovery; never returned by the API |
+| normalised v1 profile | `legacy_profiles.data` jsonb, status `restored` / `empty` | Powers "Welcome back", Start fresh / restore again, and verified manual recovery |
 | `teams.*` | `teams` + owner row in `team_members` | 0 rows in source. `whatsapp_group` kept only if `https://` (a `javascript:` URL is dropped — tested) |
 
 ## Results (local run against the real backup)
@@ -62,7 +63,10 @@ Transformations: 14 WhatsApp numbers given `+91`, 7 kept as-is, **1 invalid (9 d
 normalised; 31 profiles discoverable immediately; 30 profiles (name only) need to add a skill or role to appear in
 Discover; 0 tags dropped.
 
-### Verification (`npm run legacy:verify`) — 16/16 passed
+Recovery snapshots: 67 written — 35 `restored` at import (had skills, interests, year or contacts), 32 `empty`
+(6 with no profile row, 26 with a name only).
+
+### Verification (`npm run legacy:verify`) — 20/20 passed (re-run 11 Nov 2026 with recovery snapshots)
 
 ```
 PASS  every source user exists with the same id  (67/67)
@@ -73,13 +77,17 @@ PASS  signup timestamps preserved (ms precision)  (0 mismatches)
 PASS  every source profile migrated  (61/61)
 PASS  visibility choices preserved  (0 mismatches)
 PASS  profile timestamps preserved  (0 mismatches)
-PASS  original rows kept in profiles.legacy  (0 missing)
+PASS  every v1 account has a recovery snapshot  (67/67)
+PASS  snapshot emails match the v1 accounts  (0 mismatches)
+PASS  original v1 rows kept in legacy_profiles.raw  (0 missing)
+PASS  accounts without a v1 profile are marked empty  (6 such accounts)
+PASS  snapshot status summary  ({"restored":35,"empty":32})
 PASS  every user has a profile row  (0 without)
 PASS  legacy teams migrated  (0/0)
 PASS  every team has its owner as a member
-PASS  foreign keys present  (10 FKs)
+PASS  foreign keys present  (15 FKs)
 PASS  no orphaned rows  (0 orphans)
-PASS  search indexes present  (30 indexes)
+PASS  search indexes present  (37 indexes)
 PASS  hidden contacts never exposed by the public projection  (0 leaks)
 ```
 
@@ -100,7 +108,7 @@ Run `legacy:verify --login-email … --login-password …` with **your own** acc
 
 1. **Everyone is signed out once.** Supabase sessions/refresh tokens can't be used by Better Auth.
 2. **13 never-confirmed accounts** are migrated with `email_verified = false`. With `REQUIRE_EMAIL_VERIFICATION=false` (default) they can sign in normally; if you turn it on, they must confirm via email first.
-3. **Password reset needs email.** Until Resend is configured with a verified domain, users who forgot their password can't recover it.
+3. **Password reset needs email.** It works with either Resend (needs a domain) or SMTP such as a Gmail account with an App Password (no domain). Until one is configured, reset links can't be sent and the Forgot-password page says so.
 4. **Stale dump.** Accounts created after the dump was taken are missing until you re-run the import with a fresh backup at cutover (idempotent).
 5. **Graduation year** isn't inferred from "3rd year"-style text; users are prompted to set it.
 6. **1 WhatsApp number** was invalid and isn't shown; its owner can re-enter it. The original value is kept in `profiles.legacy`.

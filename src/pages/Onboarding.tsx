@@ -10,7 +10,8 @@ import { Field, Input, Select } from "@/components/ui/field";
 import { TagInput } from "@/components/ui/tag-input";
 import { ToggleChip } from "@/components/ui/tag";
 import { ApiRequestError } from "@/lib/api";
-import { useMe, useOnboard } from "@/lib/queries";
+import { useAcknowledgeRecovery, useConfig, useMe, useOnboard } from "@/lib/queries";
+import { RecoveryNotice } from "@/components/app/WelcomeBack";
 import { cn } from "@/lib/utils";
 import { useSignOut } from "@/components/app/AppShell";
 
@@ -22,6 +23,8 @@ export default function Onboarding() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const onboard = useOnboard();
+  const ack = useAcknowledgeRecovery();
+  const { data: config } = useConfig();
   const signOut = useSignOut();
   const p = me!.profile;
   const [step, setStep] = useState(0);
@@ -48,6 +51,7 @@ export default function Onboarding() {
     if (Object.keys(errs).length) return;
     try {
       await onboard.mutateAsync({ name: name.trim(), college: college || null, graduationYear: gradYear ? Number(gradYear) : null, skills, roles, availability });
+      if (me!.recovery.state === "empty" && !me!.recovery.acknowledged) ack.mutate(undefined);
       toast.success("You're in. Your profile is now discoverable.");
       const n = params.get("next");
       navigate(n && n.startsWith("/") && !n.startsWith("//") && n !== "/onboarding" ? n : "/discover", { replace: true });
@@ -72,6 +76,7 @@ export default function Onboarding() {
             <AnimatePresence mode="wait" initial={false}>
               {step === 0 ? (
                 <motion.div key="s0" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.2 }} className="space-y-6">
+                  <RecoveryNotice recovery={me!.recovery} emailEnabled={Boolean(config?.emailEnabled)} />
                   <div>
                     <p className="eyebrow">Step 1 of 2</p>
                     <h1 className="mt-3 text-h1">Let's set up your <span className="em">profile.</span></h1>

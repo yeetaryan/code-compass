@@ -157,8 +157,9 @@ export function toMyProfile(p: ProfileRow): MyProfile {
 }
 
 /** Minimum for appearing in discovery. */
-export const meetsOnboarding = (p: { name: string; skills: string[]; roles: string[] }) =>
-  p.name.trim().length >= 2 && (p.skills.length > 0 || p.roles.length > 0);
+/** Minimum for appearing in discovery (same rule v1 used, plus v2 roles). */
+export const meetsOnboarding = (p: { name: string; skills: string[]; roles: string[]; interests?: string[] }) =>
+  p.name.trim().length >= 2 && (p.skills.length > 0 || p.roles.length > 0 || (p.interests?.length ?? 0) > 0);
 
 /** Escape LIKE wildcards in user search input. */
 export const likeEscape = (s: string) => s.replace(/[\\%_]/g, (m) => `\\${m}`);

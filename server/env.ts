@@ -14,7 +14,13 @@ const schema = z.object({
     .string()
     .regex(/^(https:\/\/|mailto:)/, "SUPPORT_URL must start with https:// or mailto:")
     .optional(),
-  EMAIL_FROM: z.string().default("Code Compass <onboarding@resend.dev>"),
+  /** Sender shown on emails. With Gmail SMTP it must be the Gmail address itself (default). */
+  EMAIL_FROM: z.string().optional(),
+  /** SMTP alternative to Resend — e.g. a Gmail account + App Password. No custom domain needed. */
+  SMTP_HOST: z.string().default("smtp.gmail.com"),
+  SMTP_PORT: z.coerce.number().int().default(465),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
   /** "true" blocks sign-in until the email address is verified. Requires a working mailer. */
   REQUIRE_EMAIL_VERIFICATION: z
     .enum(["true", "false"])
@@ -25,9 +31,16 @@ const schema = z.object({
   DB_POOL_MAX: z.coerce.number().int().min(1).max(50).default(5),
 });
 
+/** True when password-reset / confirmation emails can actually be delivered. */
+export const emailConfigured = (e: { RESEND_API_KEY?: string; SMTP_USER?: string; SMTP_PASS?: string }) =>
+  Boolean(e.RESEND_API_KEY || (e.SMTP_USER && e.SMTP_PASS));
+
 const checked = schema.superRefine((e, ctx) => {
-  if (e.NODE_ENV === "production" && e.REQUIRE_EMAIL_VERIFICATION && !e.RESEND_API_KEY) {
-    ctx.addIssue({ code: "custom", path: ["REQUIRE_EMAIL_VERIFICATION"], message: "can't be true without RESEND_API_KEY — nobody could confirm their email" });
+  if (e.NODE_ENV === "production" && e.REQUIRE_EMAIL_VERIFICATION && !emailConfigured(e)) {
+    ctx.addIssue({ code: "custom", path: ["REQUIRE_EMAIL_VERIFICATION"], message: "can't be true without an email provider (RESEND_API_KEY or SMTP_USER/SMTP_PASS)" });
+  }
+  if (Boolean(e.SMTP_USER) !== Boolean(e.SMTP_PASS)) {
+    ctx.addIssue({ code: "custom", path: ["SMTP_PASS"], message: "SMTP_USER and SMTP_PASS must be set together" });
   }
 });
 

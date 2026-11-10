@@ -5,6 +5,8 @@
 import { LIMITS } from "../../shared/constants.js";
 import { NormalizeError, cleanText, normalizeWhatsapp, normalizeXHandle } from "../../shared/normalize.js";
 import { normalizeTags, splitLegacyTags } from "../../shared/tags.js";
+import type { SnapshotData } from "../../server/db/schema.js";
+import { meaningfulFields, mergeSnapshot, type LiveProfile } from "../../server/lib/recovery-merge.js";
 import type { Row } from "./parse-dump.js";
 
 export type Issue = { userId: string; field: string; note: string };
@@ -14,6 +16,21 @@ export type Planned = {
   accounts: Array<{ id: string; userId: string; accountId: string; providerId: "credential"; password: string; createdAt: Date; updatedAt: Date }>;
   profiles: Array<Record<string, unknown> & { userId: string }>;
   teams: Array<Record<string, unknown> & { id: string; ownerId: string }>;
+  snapshots: Array<{
+    userId: string;
+    sourceEmail: string;
+    hasProfile: boolean;
+    data: SnapshotData | null;
+    raw: unknown;
+    source: string;
+    sourceCreatedAt: Date | null;
+    sourceUpdatedAt: Date | null;
+    status: "pending" | "restored" | "empty";
+    restoredTo: string | null;
+    restoredFields: string[];
+    restoredVia: string | null;
+    restoredAt: Date | null;
+  }>;
   issues: Issue[];
   skipped: Issue[];
   stats: Record<string, number>;
@@ -21,8 +38,16 @@ export type Planned = {
 
 const ts = (v: string | null) => (v ? new Date(v) : new Date());
 
-export function plan(input: { users: Row[]; identities: Row[]; profiles: Row[]; teams: Row[] }): Planned {
-  const out: Planned = { users: [], accounts: [], profiles: [], teams: [], issues: [], skipped: [], stats: {} };
+/**
+ * @param publish  true (default): restore each v1 profile into the live profile now, so it appears in Discover at
+ *                 launch exactly as in v1. false: import snapshots as "pending"; each one is restored automatically
+ *                 the first time its owner signs in.
+ */
+export function plan(input: { users: Row[]; identities: Row[]; profiles: Row[]; teams: Row[] }, opts: { publish?: boolean; source?: string } = {}): Planned {
+  const publish = opts.publish ?? true;
+  const source = opts.source ?? "supabase-v1";
+  const importedAt = new Date();
+  const out: Planned = { users: [], accounts: [], profiles: [], teams: [], snapshots: [], issues: [], skipped: [], stats: {} };
   const bump = (k: string, n = 1) => (out.stats[k] = (out.stats[k] ?? 0) + n);
   const profileById = new Map(input.profiles.map((p) => [p.id!, p]));
   const identityByUser = new Map(input.identities.filter((i) => i.provider === "email").map((i) => [i.user_id!, i]));
@@ -86,17 +111,23 @@ export function plan(input: { users: Row[]; identities: Row[]; profiles: Row[]; 
       updatedAt: ts(identity?.updated_at ?? u.updated_at),
     });
 
+    const minimalLive = (createdAt: Date, updatedAt: Date) => ({
+      userId: id,
+      name,
+      discoverable: true,
+      onboardedAt: null as Date | null,
+      emailVisible: false, // email was never shown in the original app
+      createdAt,
+      updatedAt,
+    });
+
     if (!legacyProfile) {
       bump("profiles_created_empty");
       out.issues.push({ userId: id, field: "profile", note: "no profile row in source — created an empty one (user will be onboarded)" });
-      out.profiles.push({
-        userId: id,
-        name,
-        discoverable: true,
-        onboardedAt: null,
-        createdAt: ts(u.created_at),
-        updatedAt: ts(u.created_at),
-        legacy: { source: "supabase", profile: null },
+      out.profiles.push(minimalLive(ts(u.created_at), ts(u.created_at)));
+      out.snapshots.push({
+        userId: id, sourceEmail: email, hasProfile: false, data: null, raw: null, source,
+        sourceCreatedAt: null, sourceUpdatedAt: null, status: "empty", restoredTo: null, restoredFields: [], restoredVia: null, restoredAt: null,
       });
       continue;
     }
@@ -121,7 +152,7 @@ export function plan(input: { users: Row[]; identities: Row[]; profiles: Row[]; 
       } catch (e) {
         if (!(e instanceof NormalizeError)) throw e;
         bump("whatsapp_invalid");
-        out.issues.push({ userId: id, field: "whatsapp", note: "invalid number — not migrated to live field (kept in legacy)" });
+        out.issues.push({ userId: id, field: "whatsapp", note: "invalid number — not restored (kept in legacy_profiles.raw)" });
       }
     }
     let xHandle: string | null = null;
@@ -132,34 +163,46 @@ export function plan(input: { users: Row[]; identities: Row[]; profiles: Row[]; 
       } catch (e) {
         if (!(e instanceof NormalizeError)) throw e;
         bump("x_handle_invalid");
-        out.issues.push({ userId: id, field: "twitter", note: "invalid X handle — kept in legacy only" });
+        out.issues.push({ userId: id, field: "twitter", note: "invalid X handle — kept in legacy_profiles.raw only" });
       }
     }
 
-    const wasVisibleInBrowse = Boolean(cleanText(legacyProfile.name, 80) && (cleanText(legacyProfile.skills, 9999) || cleanText(legacyProfile.interests, 9999)));
-    if (wasVisibleInBrowse) bump("profiles_onboarded");
-    else bump("profiles_needing_onboarding");
-
-    out.profiles.push({
-      userId: id,
-      name,
+    const data: SnapshotData = {
+      name: cleanText(legacyProfile.name, LIMITS.name),
       yearOfStudy: cleanText(legacyProfile.year, 40),
       skills: skills.labels,
       skillsKey: skills.keys,
       interests: interests.labels,
       interestsKey: interests.keys,
       whatsapp,
-      xHandle,
       // Preserve the user's original choices. Columns were nullable with default true.
       whatsappVisible: legacyProfile.whatsapp_visible !== "f",
+      xHandle,
       xVisible: legacyProfile.twitter_visible !== "f",
-      emailVisible: false, // email was never shown in the original app
-      discoverable: true,
-      onboardedAt: wasVisibleInBrowse ? ts(legacyProfile.updated_at) : null,
-      createdAt: ts(legacyProfile.created_at),
-      updatedAt: ts(legacyProfile.updated_at),
-      legacy: { source: "supabase", profile: legacyProfile },
+    };
+    const sourceCreatedAt = ts(legacyProfile.created_at);
+    const sourceUpdatedAt = ts(legacyProfile.updated_at);
+    const live = minimalLive(sourceCreatedAt, sourceUpdatedAt);
+    const hasInfo = meaningfulFields(data).length > 0;
+    let restored: { patch: Partial<LiveProfile>; fields: string[] } = { patch: {}, fields: [] };
+    if (publish && hasInfo) {
+      const empty: LiveProfile = {
+        name: live.name, yearOfStudy: null, skills: [], skillsKey: [], interests: [], interestsKey: [], roles: [],
+        whatsapp: null, whatsappVisible: false, xHandle: null, xVisible: true, onboardedAt: null,
+      };
+      restored = mergeSnapshot(empty, data, sourceUpdatedAt);
+    }
+    out.profiles.push({ ...live, ...restored.patch });
+    out.snapshots.push({
+      userId: id, sourceEmail: email, hasProfile: true, data, raw: legacyProfile, source, sourceCreatedAt, sourceUpdatedAt,
+      status: !hasInfo ? "empty" : publish ? "restored" : "pending",
+      restoredTo: publish && hasInfo ? id : null,
+      restoredFields: restored.fields,
+      restoredVia: publish && hasInfo ? "import" : null,
+      restoredAt: publish && hasInfo ? importedAt : null,
     });
+    bump(restored.patch.onboardedAt ? "profiles_onboarded" : "profiles_needing_onboarding");
+    bump(hasInfo ? (publish ? "snapshots_restored_at_import" : "snapshots_pending") : "snapshots_empty");
     bump("profiles_migrated");
   }
 
@@ -191,7 +234,7 @@ export function plan(input: { users: Row[]; identities: Row[]; profiles: Row[]; 
       contactLink,
       createdAt: ts(t.created_at),
       updatedAt: ts(t.updated_at),
-      legacy: { source: "supabase", team: t },
+      legacy: { source, team: t },
     });
     bump("teams_migrated");
   }
@@ -202,6 +245,7 @@ export function plan(input: { users: Row[]; identities: Row[]; profiles: Row[]; 
   out.stats.planned_users = out.users.length;
   out.stats.planned_profiles = out.profiles.length;
   out.stats.planned_teams = out.teams.length;
+  out.stats.planned_snapshots = out.snapshots.length;
   out.stats.skipped = out.skipped.length;
   return out;
 }

@@ -12,6 +12,7 @@ const SignUp = lazy(() => import("./pages/auth/SignUp"));
 const ForgotPassword = lazy(() => import("./pages/auth/ForgotPassword"));
 const ResetPassword = lazy(() => import("./pages/auth/ResetPassword"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
+const Recover = lazy(() => import("./pages/Recover"));
 const Discover = lazy(() => import("./pages/Discover"));
 const Person = lazy(() => import("./pages/Person"));
 const EditProfile = lazy(() => import("./pages/EditProfile"));
@@ -52,6 +53,7 @@ export function App() {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/onboarding" element={<RequireAuth allowUnonboarded><Onboarding /></RequireAuth>} />
+          <Route path="/recover" element={<RequireAuth allowUnonboarded><Recover /></RequireAuth>} />
           <Route element={<RequireAuth><AppShell /></RequireAuth>}>
             <Route path="/discover" element={<Discover />} />
             <Route path="/people/:id" element={<Person />} />

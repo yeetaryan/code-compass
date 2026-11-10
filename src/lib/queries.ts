@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Me, Page, PersonCard, PersonDetail, PopularTags, TeamDetail, TeamSummary } from "@shared/api-types";
+import type { Me, Page, PersonCard, PersonDetail, PopularTags, RecoveryPreview, TeamDetail, TeamSummary } from "@shared/api-types";
 import type { OnboardingInput, ProfileUpdateInput, TeamInput } from "@shared/schemas";
 import { api, ApiRequestError, qs } from "./api";
 
@@ -96,3 +96,22 @@ export const useDecide = (id: string) =>
   useTeamMutation((v: { requestId: string; decision: "accept" | "decline" }) => api<TeamDetail>(`/api/teams/${id}/requests/${v.requestId}`, { method: "POST", json: { decision: v.decision } }), id);
 export const useLeave = (id: string) => useTeamMutation(() => api<{ ok: true }>(`/api/teams/${id}/leave`, { method: "POST" }), id);
 export const useRemoveMember = (id: string) => useTeamMutation((userId: string) => api<TeamDetail>(`/api/teams/${id}/members/${userId}`, { method: "DELETE" }), id);
+
+/* ── Historical profile recovery ── */
+function useRecoveryAction<V, R>(fn: (v: V) => Promise<R>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.me });
+      qc.invalidateQueries({ queryKey: ["people"] });
+    },
+  });
+}
+export const useAcknowledgeRecovery = () => useRecoveryAction(() => api<{ ok: true }>("/api/recovery/acknowledge", { method: "POST" }));
+export const useStartFresh = () => useRecoveryAction(() => api<{ ok: true }>("/api/recovery/start-fresh", { method: "POST" }));
+export const useReapply = () => useRecoveryAction(() => api<{ ok: true; restoredFields: string[] }>("/api/recovery/reapply", { method: "POST" }));
+export const useRecoveryRequest = () => useMutation({ mutationFn: (email: string) => api<{ ok: true; message: string }>("/api/recovery/request", { method: "POST", json: { email } }) });
+export const useRecoveryVerify = () => useMutation({ mutationFn: (code: string) => api<RecoveryPreview>("/api/recovery/verify", { method: "POST", json: { code } }) });
+export const useRecoveryClaim = () =>
+  useRecoveryAction((decision: "restore" | "start_fresh") => api<{ ok: true; restoredFields: string[] }>("/api/recovery/claim", { method: "POST", json: { decision } }));

@@ -64,10 +64,27 @@ export type MyProfile = {
   completeness: number;
 };
 
+export type RecoveredField = "name" | "yearOfStudy" | "skills" | "interests" | "whatsapp" | "xHandle";
+
+/** What the server knows about this account's v1 (pre-2026) profile. */
+export type RecoveryState =
+  | { state: "none" }
+  | { state: "restored"; via: "import" | "auto" | "manual" | "reapply"; fields: RecoveredField[]; restoredAt: string; acknowledged: boolean }
+  | { state: "empty"; acknowledged: boolean }
+  | { state: "dismissed" };
+
 export type Me = {
   user: { id: string; email: string; name: string; emailVerified: boolean; createdAt: string };
   profile: MyProfile;
   pendingRequestsToReview: number;
+  recovery: RecoveryState;
+};
+
+export type RecoveryPreview = {
+  fields: { field: RecoveredField; label: string; value: string }[];
+  /** Fields that exist in the old profile but won't be applied because you've already filled them in. */
+  keptFromCurrent: RecoveredField[];
+  sourceUpdatedAt: string | null;
 };
 
 export type MemberSummary = { id: string; name: string; avatarUrl: string | null; role: "owner" | "member"; roles: RoleId[]; skills: string[] };

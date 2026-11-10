@@ -47,6 +47,11 @@ team_members (team_id, user_id) PK, role owner|member  — exactly one owner per
 team_join_requests id, team_id, user_id, message, status pending|accepted|declined|withdrawn
                    — at most one pending request per (team, user) (partial unique index)
 api_rate_limits key PK, count, window_start
+legacy_profiles  user_id PK/FK (v1 account), source_email, has_profile, data jsonb (normalised v1 profile),
+                 raw jsonb (original Supabase row), status pending|restored|dismissed|claimed|empty,
+                 restored_to, restored_fields[], restored_via, acknowledged_at
+profile_recovery_codes   hashed 6-digit codes for manual recovery (requester, target, attempts, expiry)
+profile_recovery_events  audit trail (event names + field lists only — never codes, tokens or passwords)
 ```
 
 * **IDs.** User ids are text holding UUIDs, so the 67 migrated Supabase UUIDs are preserved verbatim and new users get UUIDs too.
@@ -76,11 +81,32 @@ api_rate_limits key PK, count, window_start
 | Preferred contact | Returned only if that channel is visible |
 | Team group chat link | Team members and owner only |
 | Pending join requests | Team owner only |
-| `profiles.legacy`, password hashes, sessions | Never returned by any endpoint |
+| `legacy_profiles` (raw v1 rows, source emails), recovery codes, password hashes, sessions | Never returned by any endpoint |
+| A v1 profile via manual recovery | Only after the emailed code is verified by the same signed-in account; WhatsApp masked in the review |
 
 The rule is enforced **in SQL**: `PUBLIC_PROFILE_COLUMNS` (`server/lib/profile-view.ts`) uses
 `CASE WHEN p.x_visible THEN p.x_handle END`, so a hidden value is never read into the API process for another
 user, let alone sent. `verify-migration.ts` and the API tests assert this.
+
+## Historical profile recovery
+
+Every v1 (Supabase) account gets a `legacy_profiles` snapshot during migration, keyed by its preserved user id.
+
+* **Automatic.** By default the import restores each v1 profile into the live profile, so the 31 profiles that were
+  visible in v1 are discoverable at launch. (With `--defer-profiles` snapshots stay `pending` and are restored the
+  first time the owner signs in.) On first sign-in the owner sees a one-time *Welcome back* summary listing what was
+  restored, with **Review**, **Looks good** and **Start fresh**.
+* **Never overwrites.** A snapshot only fills fields that are empty in the live profile; a contact's visibility
+  travels with its value. *Start fresh* clears only values that are still exactly what was restored, and the user can
+  restore again later. Rules live in `server/lib/recovery-merge.ts`, shared by the import and the API.
+* **Accounts with no v1 profile** (6) or a name-only one (26) are marked `empty`; onboarding explains there was nothing to bring back.
+* **Manual recovery into a different account** (`/recover`): the signed-in user enters the old email; if an unclaimed
+  v1 profile exists, a 6-digit code is emailed **to the old address only**. Codes are HMAC-hashed, expire in 15 minutes,
+  allow 5 attempts, are bound to the requesting account, and only the newest one counts. After verification the user
+  reviews the data (WhatsApp masked) and chooses *Recover my profile* or *Start fresh*. A recovered snapshot becomes
+  `claimed`; the old account is kept but hidden from Discover so nobody is listed twice.
+* **No enumeration.** `/api/recovery/request` returns the same body for every email, and emails are sent after the
+  response (`waitUntil`) so timing doesn't reveal matches. The same applies to password-reset emails.
 
 ## Security controls
 
