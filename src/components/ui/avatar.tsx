@@ -1,48 +1,40 @@
-import * as React from "react"
-import * as AvatarPrimitive from "@radix-ui/react-avatar"
+import { useState } from "react";
+import { cn, initials } from "@/lib/utils";
 
-import { cn } from "@/lib/utils"
+const palette = ["#E9E1D3", "#E3E8DF", "#E6E0EA", "#F1DDD3", "#DDE6EA", "#EDE5CF"];
+const hash = (s: string) => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
 
-const Avatar = React.forwardRef<
-  React.ElementRef<typeof AvatarPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Root>
->(({ className, ...props }, ref) => (
-  <AvatarPrimitive.Root
-    ref={ref}
-    className={cn(
-      "relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full",
-      className
-    )}
-    {...props}
-  />
-))
-Avatar.displayName = AvatarPrimitive.Root.displayName
+export function Avatar({ name, src, size = 40, className }: { name: string; src?: string | null; size?: number; className?: string }) {
+  const [failed, setFailed] = useState(false);
+  const bg = palette[hash(name) % palette.length];
+  return (
+    <span
+      className={cn("relative inline-grid shrink-0 place-items-center overflow-hidden rounded-full border border-ink/5 font-display font-semibold text-ink-2", className)}
+      style={{ width: size, height: size, background: bg, fontSize: Math.max(11, size * 0.36) }}
+      aria-hidden={!src}
+    >
+      {src && !failed ? (
+        <img src={src} alt={`${name}'s photo`} width={size} height={size} loading="lazy" decoding="async" onError={() => setFailed(true)} className="size-full object-cover" />
+      ) : (
+        initials(name)
+      )}
+    </span>
+  );
+}
 
-const AvatarImage = React.forwardRef<
-  React.ElementRef<typeof AvatarPrimitive.Image>,
-  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Image>
->(({ className, ...props }, ref) => (
-  <AvatarPrimitive.Image
-    ref={ref}
-    className={cn("aspect-square h-full w-full", className)}
-    {...props}
-  />
-))
-AvatarImage.displayName = AvatarPrimitive.Image.displayName
-
-const AvatarFallback = React.forwardRef<
-  React.ElementRef<typeof AvatarPrimitive.Fallback>,
-  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Fallback>
->(({ className, ...props }, ref) => (
-  <AvatarPrimitive.Fallback
-    ref={ref}
-    className={cn(
-      "flex h-full w-full items-center justify-center rounded-full bg-muted",
-      className
-    )}
-    {...props}
-  />
-))
-AvatarFallback.displayName = AvatarPrimitive.Fallback.displayName
-
-export { Avatar, AvatarImage, AvatarFallback }
+export function AvatarStack({ people, max = 4, size = 28 }: { people: { id: string; name: string; avatarUrl: string | null }[]; max?: number; size?: number }) {
+  const shown = people.slice(0, max);
+  const extra = people.length - shown.length;
+  return (
+    <span className="flex -space-x-2">
+      {shown.map((p) => (
+        <Avatar key={p.id} name={p.name} src={p.avatarUrl} size={size} className="ring-2 ring-surface" />
+      ))}
+      {extra > 0 && (
+        <span className="grid place-items-center rounded-full bg-subtle text-[0.7rem] font-medium text-ink-3 ring-2 ring-surface" style={{ width: size, height: size }}>
+          +{extra}
+        </span>
+      )}
+    </span>
+  );
+}
