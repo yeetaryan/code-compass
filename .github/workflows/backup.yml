@@ -1,0 +1,37 @@
+# Weekly encrypted logical backup of the production database, kept as a workflow artifact for 30 days.
+# Requires repository secrets: BACKUP_DATABASE_URL (Neon *direct*, non-pooled URL) and BACKUP_PASSPHRASE.
+# The dump contains personal data — the artifact is symmetric-encrypted with BACKUP_PASSPHRASE before upload.
+name: Database backup
+on:
+  schedule:
+    - cron: "17 21 * * 0" # Sundays 21:17 UTC (Monday 02:47 IST)
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo apt-get install -y curl ca-certificates
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSo /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update && sudo apt-get install -y postgresql-client-17
+      - name: Dump and encrypt
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          FILE="codecompass-$(date -u +%Y%m%dT%H%MZ).dump"
+          /usr/lib/postgresql/17/bin/pg_dump "$DATABASE_URL" --format=custom --no-owner --no-acl --file="$FILE"
+          /usr/lib/postgresql/17/bin/pg_restore --list "$FILE" > /dev/null   # sanity check: archive is readable
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$PASSPHRASE" --symmetric --cipher-algo AES256 "$FILE"
+          rm "$FILE"
+          echo "FILE=$FILE.gpg" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.FILE }}
+          path: ${{ env.FILE }}
+          retention-days: 30

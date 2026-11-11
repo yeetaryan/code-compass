@@ -1,0 +1,174 @@
+# Deployment — Vercel + Neon
+
+## Current deployment (November 2026)
+
+| | |
+|---|---|
+| Vercel project | `codecompass` (account `itsaryan1015-3865`, Hobby). Production branch `main`; previews from any other branch |
+| Production URL | https://codecompass-eta.vercel.app (`code-compass-mu.vercel.app` belongs to the v1 project in another Vercel account and will redirect here at cutover) |
+| Functions | one Node function (`api/index.ts`), region `sin1`, Node 22 |
+| Neon | project `code-compass`, Postgres 18, `ap-southeast-1`; branch `main` = production, `dev` = previews + local development |
+| Email | Gmail SMTP with an App Password (`SMTP_USER`/`SMTP_PASS`), or Resend once a domain exists. Without either, reset/recovery emails are off and the UI says so |
+| Deploy | push to `main` → Production; push any other branch → Preview (protected by Vercel login) |
+
+Local helper scripts used for the first deployment live in `deploy-local/` on the deploying machine (git-ignored).
+
+## Launch runbook (Windows helper scripts in `deploy-local/`)
+
+| Step | Script | Touches | Needs |
+|---|---|---|---|
+| Email on + preview | `08-preview.ps1` | Vercel **preview/development** env only (`DATABASE_URL` → Neon dev, `SMTP_*`), Neon **dev**, branch `v2` → Preview | `NEON_DEV_*`; `SMTP_*` optional |
+| Fresh v1 backup + checks | `09-fresh-backup.ps1` | **read-only** (Supabase export, prod preflight) | `SUPABASE_DB_URL` (Session pooler string) in `secrets.env` |
+| Cutover | `10-cutover.ps1` | read-only preflight first; then Vercel **production** env (`DATABASE_URL`, `SMTP_*`), Neon **production** (schema + import), `main` → Production | `SMTP_*`, `NEON_PROD_*`, step 09 backup < 24 h; you type `CUTOVER` |
+| Close the v1 leak | `docs/supabase/close-v1-public-read.sql` | Supabase (policies only) | run in the Supabase SQL editor after the cutover |
+
+`10-cutover.ps1` stops on its own if the fresh backup is older than 24 h, the preflight finds a production account
+using a v1 email with a different id (delete such test accounts first — that v1 user would otherwise be skipped),
+the import or verification fails, or the merge conflicts. Between the schema migration and the new Production build
+(1–2 minutes) the *old* Production build returns errors; that's harmless while Production has no real users.
+
+### Environment variables
+
+| Variable | Production | Preview | Notes |
+|---|---|---|---|
+| `DATABASE_URL` | Neon `main`, pooled | Neon `dev`, pooled | set |
+| `BETTER_AUTH_SECRET` | random 32 bytes | a different value | set |
+| `APP_URL` | `https://codecompass-eta.vercel.app` | — (falls back to the preview URL) | set |
+| `SMTP_USER` / `SMTP_PASS` | Gmail address + App Password | same | **missing** — add to `secrets.env`, run `08-preview.ps1` |
+| `RESEND_API_KEY` / `EMAIL_FROM` | optional, needs a domain | | not used |
+| `SUPPORT_URL` | optional link shown on Forgot password / Privacy | | not set (Privacy says "reply to any email") |
+| `REQUIRE_EMAIL_VERIFICATION` | `false` | `false` | default |
+
+### Old URL
+
+`vercel.json` redirects (307) every request whose host is `code-compass-mu.vercel.app` (or one of the old project's
+`code-compass-*-aryans-projects-9694c788.vercel.app` deployment URLs) to `https://codecompass-eta.vercel.app`. This only
+takes effect if the **old** Vercel project (other account) builds the new `main` — its GitHub deployments show it's
+connected to this repo. If the old URL still serves v1 after the cutover: sign in to that Vercel account → the old
+project → Settings → Git → confirm the production branch is `main` and redeploy; or Settings → Domains →
+`code-compass-mu.vercel.app` → *Redirect to* `codecompass-eta.vercel.app`. The old project needs no environment
+variables for the redirect to work (redirects run before any function).
+
+## 0. What you need
+
+| Item | Where | Notes |
+|---|---|---|
+| GitHub repo | `yeetaryan/code-compass` | Push v2 to a branch first (see §1) |
+| Neon account | neon.com | Free plan is enough to launch |
+| Vercel account | vercel.com | The existing project behind `code-compass-mu.vercel.app` |
+| Supabase dashboard | supabase.com | Only to take a fresh backup at cutover |
+| A Gmail account with 2-Step Verification + an App Password | myaccount.google.com/apppasswords | Sends password-reset, recovery and team emails (or Resend + a domain later) |
+| `openssl` | your machine | To generate `BETTER_AUTH_SECRET` |
+
+## 1. Source control
+
+```bash
+git clone https://github.com/yeetaryan/code-compass.git && cd code-compass
+git tag v1-lovable && git push origin v1-lovable          # permanent pointer to the original app
+git checkout -b v2
+# copy this project's files in (everything except node_modules, dist, private/, migration-output/, .env)
+git add -A && git commit -m "Code Compass v2: Neon + Better Auth + redesign"
+git push -u origin v2
+```
+
+Open a PR from `v2` → `main` but don't merge until §6. Confirm `git status` shows no `.env`, `private/` or `*.backup*` files.
+
+## 2. Neon
+
+1. Create a project (Postgres 16–18; Code Compass runs on 18). Pick the region closest to your users — and use the **same** region for Vercel functions (§4) so each query doesn't cross an ocean.
+2. Neon creates a `main` branch → this is **production**. Create a second branch `dev` from it → **development/preview**.
+3. For each branch, copy the **pooled** connection string (host contains `-pooler`, ends with `?sslmode=require`).
+4. Apply the schema to both:
+   ```bash
+   DATABASE_URL="<dev pooled url>"  npm run db:migrate
+   DATABASE_URL="<prod pooled url>" npm run db:migrate        # ⚠︎ creates tables in production
+   ```
+   Migrations only create objects; they never drop data.
+
+## 3. Rehearse the data migration on `dev`
+
+```bash
+# a fresh backup: Supabase dashboard → Database → Backups → download, save under ./private/ (git-ignored)
+npm run legacy:migrate -- --dump ./private/<backup>.backup.gz --dry-run
+DATABASE_URL="<dev pooled url>" npm run legacy:migrate -- --dump ./private/<backup>.backup.gz --confirm-host <dev host>
+DATABASE_URL="<dev pooled url>" npm run legacy:verify  -- --dump ./private/<backup>.backup.gz \
+  --login-email <your own Code Compass email> --login-password '<your own password>'
+```
+
+All checks must pass, including the real sign-in with **your own** pre-existing account.
+
+## 4. Vercel
+
+1. **Inspect the existing project first.** In the project behind `code-compass-mu.vercel.app`: note the Git repo/branch, Framework Preset, Build Command, Output Directory, Root Directory and Domains. v2's `vercel.json` sets framework `vite`, build `npm run build`, output `dist`. Vercel keeps old deployments, so the current site stays one click away (Instant Rollback).
+2. Settings → Environment Variables:
+
+   | Variable | Production | Preview |
+   |---|---|---|
+   | `DATABASE_URL` | Neon **main** pooled URL | Neon **dev** pooled URL |
+   | `BETTER_AUTH_SECRET` | `openssl rand -base64 32` | a *different* value |
+   | `APP_URL` | `https://code-compass-mu.vercel.app` (or your domain) | your preview URL or a stable preview alias |
+   | `SMTP_USER` / `SMTP_PASS` | Gmail address + App Password (or `RESEND_API_KEY` + `EMAIL_FROM` with a verified domain) | same |
+   | `REQUIRE_EMAIL_VERIFICATION` | `false` until email works, then optionally `true` | `false` |
+
+   Never set `NODE_ENV` — Vercel sets it.
+3. Settings → Functions → Region: the same region as Neon. Node.js version: 22.x.
+4. Push the `v2` branch → Vercel builds a **Preview** deployment against Neon `dev`.
+
+## 5. Verify the preview
+
+```bash
+curl https://<preview-url>/api/health/live          # {"status":"ok",...}
+curl https://<preview-url>/api/health               # db.ok: true, latencyMs
+```
+
+Then in a browser: sign in with your own migrated account; edit your profile; toggle a contact's visibility and check
+it disappears for a second test account; create a team; request to join from the second account; accept; request a
+password reset and confirm the email arrives; open DevTools → Console and confirm there are no CSP errors.
+
+If `/api/*` returns the SPA's HTML instead of JSON, the rewrite isn't reaching the function — check that the
+project's Root Directory is the repo root and that `api/index.ts` was detected under *Functions* in the deployment.
+
+## 6. Cutover ⚠︎
+
+1. Announce a short maintenance window (users will need to sign in again — sessions can't be carried over).
+2. Take a **fresh** Supabase backup (anyone who signed up since the last one would otherwise be missed). Keep the original file untouched; work on a copy.
+3. Import into production:
+   ```bash
+   npm run legacy:migrate -- --dump ./private/<fresh>.backup.gz --dry-run
+   DATABASE_URL="<prod direct url>" npm run legacy:preflight -- --dump ./private/<fresh>.backup.gz   # read-only
+   DATABASE_URL="<prod pooled url>" npm run legacy:migrate -- --dump ./private/<fresh>.backup.gz --confirm-host <prod host>
+   DATABASE_URL="<prod pooled url>" npm run legacy:verify  -- --dump ./private/<fresh>.backup.gz --login-email … --login-password …
+   ```
+   The import is idempotent; re-running it only adds what's missing. By default (Option C) v1 profiles stay out of
+   Discover until each owner signs in and confirms them; add `--publish-profiles` to show them all at once instead.
+4. Take a Neon snapshot / note the timestamp (restore point).
+5. Merge `v2` → `main`. Vercel deploys to Production. Re-run §5 against the production URL.
+6. Leave the Supabase project **untouched** (not deleted) for at least 30 days as a fallback.
+
+## 7. After launch
+
+* **Close the old data leak.** The old app's anon key is public and its RLS lets anyone read every profile (including hidden WhatsApp numbers). After cutover, in Supabase: drop the `"Users can view all profiles"` policy (or pause the project). Do this as soon as v2 is live.
+* **Custom domain:** add it in Vercel → Domains, then update `APP_URL` (and `EMAIL_FROM` domain) and redeploy.
+* **Email:** Gmail SMTP works without a domain (≈500 emails/day; use a dedicated Gmail account so your personal address isn't the sender). For a branded sender later, verify a domain in Resend and set `RESEND_API_KEY` + `EMAIL_FROM` — Resend takes precedence when both are set.
+* **Monitoring:** point an uptime monitor (e.g. UptimeRobot, Better Stack) at `/api/health/live` — **not** `/api/health`, which wakes the database every ping and burns Neon compute hours. Vercel → Logs shows API errors (each has a `requestId` that matches the error the user saw).
+* **Backups:** see [DATABASE_BACKUP.md](DATABASE_BACKUP.md).
+
+## Rollback
+
+* **App:** Vercel → Deployments → previous production deployment → *Instant Rollback*. Rolling back to v1 makes the old Supabase app live again (its data is still there, but changes made in v2 since cutover won't be in it).
+* **Data:** Neon → Branches → Restore to a point in time within the history window, or restore a `pg_dump` (DATABASE_BACKUP.md).
+
+## Free-tier limits and costs (checked 10 Nov 2026 — re-check before relying on them)
+
+| Service | Free allowance (as published) | When exceeded | Notes for Code Compass |
+|---|---|---|---|
+| **Neon Free** | 1 GB storage per project, 100 CU-hours per project per month, autoscaling up to 2 CU, scale to zero after 5 min (can't be disabled on Free), up to 6 h point-in-time history (≤1 GB), 5 GB public transfer per month, 1 manual snapshot | Compute suspended until the next billing period (or upgrade); over storage, writes fail. No data deleted, no surprise bill | Current data is a few MB. Scale-to-zero adds a cold start (usually well under a few seconds) to the first request after 5 idle minutes. Paid plans are usage-based (Launch ≈ $0.106/CU-hour, $0.35/GB-month) |
+| **Vercel Hobby** | 1 M function invocations, 4 h active CPU, 360 GB-h provisioned memory, 100 GB fast data transfer per month; 300 s max duration | Features blocked until the 30-day window resets | **Hobby is for non-commercial personal use only.** If Code Compass starts making money or is run by a company, move to Pro ($20/user/month) |
+| **Resend Free** | 100 emails/day, 3,000/month, 3 verified domains, 10 requests/s | Sending blocked (429) until reset | Plenty for password resets. Keep bounce rate < 4% |
+
+Nothing here guarantees uptime: free tiers can change, and Neon/Vercel publish no SLA for free plans.
+At student-community scale the expected monthly cost is **$0**; the first thing you'd pay for is a domain (~$10–15/year).
+
+Sources: [Neon plans](https://neon.com/docs/introduction/plans), [Neon free-plan FAQ](https://neon.com/faqs/free-plan-limits-and-quotas),
+[Vercel Hobby](https://vercel.com/docs/plans/hobby), [Resend quotas](https://resend.com/docs/knowledge-base/account-quotas-and-limits),
+[Resend pricing](https://resend.com/docs/knowledge-base/what-is-resend-pricing).
