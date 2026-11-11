@@ -106,7 +106,8 @@ Every v1 (Supabase) account gets a `legacy_profiles` snapshot during migration, 
 * **Manual recovery into a different account** (`/recover`): the signed-in user enters the old email; if an unclaimed
   v1 profile exists, a 6-digit code is emailed **to the old address only**. Codes are HMAC-hashed, expire in 15 minutes,
   allow 5 attempts, are bound to the requesting account, and only the newest one counts. After verification the user
-  reviews the data (WhatsApp masked) and chooses *Recover my profile* or *Start fresh*. A recovered snapshot becomes
+  reviews the data (WhatsApp masked) and chooses *Recover my profile* or *Start fresh*. Restored contacts always come
+  back **hidden** on this path (it skips onboarding's visibility switches). A recovered snapshot becomes
   `claimed`; the old account is kept but hidden from Discover so nobody is listed twice.
 * **No enumeration.** `/api/recovery/request` returns the same body for every email, and emails are sent after the
   response (`waitUntil`) so timing doesn't reveal matches. The same applies to password-reset emails.

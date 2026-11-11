@@ -99,10 +99,14 @@ await step("new user recovers an old profile with an emailed code (review → re
   await page.getByRole("button", { name: "Verify code" }).click();
   await page.getByRole("heading", { name: "We found your previous profile" }).waitFor();
   await page.getByText("Rust, Go").waitFor();
+  await page.getByText(/Contact details come back hidden/).waitFor();
   await page.screenshot({ path: `${SHOTS}/r5-review.png` });
   await page.getByRole("button", { name: "Recover my profile" }).click();
   await page.waitForURL(/\/profile/);
   await page.getByText(/We moved your previous profile into this account/).waitFor();
+  await page.getByText(/restored contact details are hidden until you switch them on/).waitFor();
+  const meAfter = await page.evaluate(() => fetch("/api/me").then((r) => r.json()));
+  if (meAfter.profile.visibility.whatsapp !== false || meAfter.profile.visibility.x !== false) throw new Error("manually recovered contacts must start hidden");
   await page.screenshot({ path: `${SHOTS}/r6-moved.png` });
 });
 await ctx.close();

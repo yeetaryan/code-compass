@@ -131,6 +131,7 @@ export default function Recover() {
                     <p className="mt-1 text-[0.9rem] text-ink-3">
                       {preview.sourceUpdatedAt ? `Last updated ${new Date(preview.sourceUpdatedAt).toLocaleDateString(undefined, { month: "long", year: "numeric" })}. ` : ""}
                       Restoring only fills in details you haven't added yet.
+                      {preview.fields.some((f) => f.field === "whatsapp" || f.field === "xHandle") ? " Contact details come back hidden — you choose who sees them in your profile." : ""}
                     </p>
                   </div>
                   {preview.fields.length ? (

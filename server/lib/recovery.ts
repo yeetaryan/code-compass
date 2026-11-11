@@ -75,9 +75,15 @@ async function applyLocked(tx: Tx, snap: Snapshot, targetId: string, via: "auto"
   const live = await lockProfile(tx, targetId);
   const now = new Date();
   const { patch, fields } = mergeSnapshot(livePick(live), snap.data, now);
-  // Automatic and repeat restores never publish on their own: the owner confirms the restored details in
-  // onboarding first (old data may be out of date). A manual recovery is itself an explicit review, so it may.
+  // Automatic and repeat restores never publish on their own: the owner confirms the restored details (and who
+  // sees each contact) in onboarding first. A manual recovery is an explicit review of skills and interests, so it
+  // may publish — but it skips onboarding's visibility switches, so restored contacts always come back hidden;
+  // the owner turns them on in their profile. v1's "visible" default is never applied without a confirmation.
   if (via !== "manual") delete patch.onboardedAt;
+  else {
+    if ("whatsapp" in patch) patch.whatsappVisible = false;
+    if ("xHandle" in patch) patch.xVisible = false;
+  }
   if (Object.keys(patch).length) await tx.update(profiles).set({ ...patch, updatedAt: now }).where(eq(profiles.userId, targetId));
   const claimedElsewhere = targetId !== snap.userId;
   if (claimedElsewhere) {

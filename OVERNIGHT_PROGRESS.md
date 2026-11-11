@@ -79,3 +79,10 @@ Per-user email preferences · in-app messaging · report/block · admin tools ·
 
 The 12 demo accounts still exist in the **Neon dev branch** (not production). The preview uses that branch, so they show there until removed with `demo:remove`.
 App code never had fake routes: cards link to `/people/<real id>` / `/teams/<real id>`; unknown or hidden ids show "Profile not available".
+
+## Manual-recovery visibility fix (11 Nov, later)
+
+Recovering an old profile into a *different* account (emailed code) used to apply v1's WhatsApp / X visibility as-is and publish at once.
+Now restored contacts always come back hidden on that path; the review screen and the welcome banner say so. `server/lib/recovery.ts`,
+`src/pages/Recover.tsx`, `src/components/app/WelcomeBack.tsx`; tests in `tests/recovery.test.ts` and `tests/e2e/recovery-flows.mjs`.
+Result: 67/67 API tests, 19 + 5 browser flows, build / tsc / eslint clean.

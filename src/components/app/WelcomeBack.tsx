@@ -43,6 +43,7 @@ export function WelcomeBackBanner({ recovery, className }: { recovery: RecoveryS
             <p className="mt-1 text-[0.92rem] leading-relaxed text-ink-2">
               {moved ? "We moved your previous profile into this account" : "Looks like you've been here before — we restored your previous profile"}
               {recovery.fields.length ? <>: your {list(recovery.fields)}.</> : "."} Check it over and add anything new.
+              {moved && recovery.fields.some((f) => f === "whatsapp" || f === "xHandle") ? " Your restored contact details are hidden until you switch them on." : ""}
             </p>
           </div>
         </div>

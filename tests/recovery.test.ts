@@ -224,6 +224,14 @@ describe("manual recovery into a different account", () => {
     assert.equal(me.recovery.via, "manual");
     assert.deepEqual(me.profile.skills, ["Rust", "Go"]);
     assert.equal(me.profile.name, "New Me");
+    assert.equal(me.profile.whatsapp, "+447700900999", "number restored for the owner");
+    assert.equal(me.profile.visibility.whatsapp, false, "v1 had it visible, but a manual recovery never publishes contacts unconfirmed");
+    assert.equal(me.profile.visibility.x, false);
+    assert.equal(me.profile.onboarded, true, "reviewed skills make the profile discoverable");
+    const seen = await intruder.get(`/api/people/${me.user.id}`);
+    assert.equal(seen.status, 200, seen.text);
+    assert.ok(!seen.text.includes("447700900999") && !seen.text.includes("oldx"), "other members can't see the restored contacts");
+    assert.ok(!seen.json.contacts.some((c: { channel: string }) => c.channel === "whatsapp" || c.channel === "x"));
 
     // the old account is preserved but no longer listed, so the person isn't in Discover twice
     const old = await pool().query("SELECT discoverable FROM profiles WHERE user_id = $1", [LEGACY.old.id]);
