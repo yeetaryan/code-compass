@@ -32,27 +32,38 @@ const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 }, d
 let page = await ctx.newPage();
 watch(page, "desktop");
 
-await step("returning user with a full v1 profile sees Welcome back on Discover", async () => {
+await step("returning user is restored at sign-in but confirms in onboarding before appearing in Discover", async () => {
   await signIn(page, "six@legacy.test", "abc123");
-  await page.waitForURL(/\/discover/);
+  await page.waitForURL(/\/onboarding/);
   await page.getByRole("heading", { name: "Welcome back to Code Compass." }).waitFor();
-  await page.getByText(/we restored your previous profile: your year, skills, interests, WhatsApp and X handle/i).waitFor();
-  await page.screenshot({ path: `${SHOTS}/r1-welcome-back.png` });
+  await page.getByText(/We brought back your year, skills, interests, WhatsApp and X handle/).waitFor();
+  await page.getByText("Who can see your restored contact details?").waitFor();
+  await page.screenshot({ path: `${SHOTS}/r1-welcome-back-onboarding.png` });
 });
 
-await step("Start fresh → onboarding offers to restore again → restore", async () => {
-  await page.getByRole("button", { name: "Start fresh" }).click();
+await step("Start fresh → offered to restore again → restore → confirm visibility → finish", async () => {
+  await page.getByRole("button", { name: "Start fresh instead" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Start fresh" }).click();
-  await page.waitForURL(/\/onboarding/);
   await page.getByText("Changed your mind?").waitFor();
+  if (await page.getByText("Who can see your restored contact details?").count()) throw new Error("contacts still shown after Start fresh");
   await page.screenshot({ path: `${SHOTS}/r2-changed-mind.png` });
   await page.getByRole("button", { name: "Restore my previous profile" }).click();
+  await page.getByText("Who can see your restored contact details?").waitFor();
+  const wa = page.getByRole("switch", { name: "Show my WhatsApp to signed-in members" });
+  if ((await wa.getAttribute("aria-checked")) !== "true") throw new Error("v1 WhatsApp choice should start visible");
+  await wa.click();
+  await page.getByText("Hidden — only you can see it").waitFor();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByText("JavaScript").first().waitFor();
+  await page.getByRole("button", { name: "Frontend" }).click();
+  await page.getByRole("button", { name: "Finish and explore" }).click();
   await page.waitForURL(/\/discover/);
-  await page.getByRole("heading", { name: "Welcome back to Code Compass." }).waitFor();
-  await page.getByRole("button", { name: "Looks good" }).click();
-  await page.getByRole("heading", { name: "Welcome back to Code Compass." }).waitFor({ state: "detached" });
   await page.reload();
-  if (await page.getByRole("heading", { name: "Welcome back to Code Compass." }).count()) throw new Error("banner came back after acknowledging");
+  await page.waitForTimeout(400);
+  if (await page.getByRole("heading", { name: "Welcome back to Code Compass." }).count()) throw new Error("banner shown again after onboarding");
+  const me = await page.evaluate(() => fetch("/api/me").then((r) => r.json()));
+  if (me.profile.visibility.whatsapp !== false) throw new Error("WhatsApp visibility choice not saved");
+  if (!me.profile.onboarded || !me.recovery.acknowledged) throw new Error("not onboarded/acknowledged");
 });
 await ctx.clearCookies();
 
@@ -99,19 +110,19 @@ await ctx.close();
 const m = await browser.newContext({ ...devices["iPhone 13"] });
 page = await m.newPage();
 watch(page, "mobile");
-await step("mobile: recover page and welcome banner fit without horizontal scroll", async () => {
+await step("mobile: welcome-back onboarding and recover page fit without horizontal scroll", async () => {
   await signIn(page, "hidden@legacy.test", "longerpass1");
-  await page.waitForURL(/\/discover/);
+  await page.waitForURL(/\/onboarding/);
   await page.getByRole("heading", { name: "Welcome back to Code Compass." }).waitFor();
-  for (const path of ["/discover", "/recover", "/onboarding"]) {
+  for (const path of ["/onboarding", "/recover"]) {
     await page.goto(BASE + path);
     await page.waitForTimeout(500);
     const o = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     if (o > 1) throw new Error(`${path} overflows by ${o}px`);
   }
-  await page.goto(BASE + "/discover");
+  await page.goto(BASE + "/onboarding");
   await page.getByRole("heading", { name: "Welcome back to Code Compass." }).waitFor();
-  await page.screenshot({ path: `${SHOTS}/r7-mobile-banner.png` });
+  await page.screenshot({ path: `${SHOTS}/r7-mobile-welcome.png`, fullPage: true });
 });
 await browser.close();
 console.log(results.join("\n"));

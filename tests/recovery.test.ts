@@ -44,16 +44,39 @@ const codeFrom = (text: string) => text.match(/\b(\d{6})\b/)![1];
 const profileRows = async (id: string) => Number((await pool().query("SELECT count(*) n FROM profiles WHERE user_id = $1", [id])).rows[0].n);
 
 describe("automatic recovery (original account)", () => {
-  it("existing user with a complete v1 profile: restored, summarised once, no duplicate profile", async () => {
+  it("default import keeps v1 profiles out of Discover until their owner signs in and confirms", async () => {
+    const viewer = new Client(app);
+    await viewer.signUp("Viewer", "viewer@test.dev");
+    await viewer.post("/api/me/onboarding", { name: "Viewer", skills: ["SQL"], roles: ["backend"], availability: "open", college: null, graduationYear: null });
+    const d = (await viewer.get("/api/people?q=Six")).json;
+    assert.ok(!d.items.some((p: { id: string }) => p.id === LEGACY.six.id), "not listed before the owner returns");
+    assert.equal((await viewer.get(`/api/people/${LEGACY.six.id}`)).status, 404, "profile URL hidden too");
+    const s = await pool().query("SELECT status FROM legacy_profiles WHERE user_id = $1", [LEGACY.six.id]);
+    assert.equal(s.rows[0].status, "pending");
+  });
+
+  it("existing user with a complete v1 profile: restored at sign-in, confirmed in onboarding, no duplicate profile", async () => {
     const c = await signedIn(LEGACY.six);
-    const me = (await c.get("/api/me")).json;
+    let me = (await c.get("/api/me")).json;
     assert.equal(me.user.id, LEGACY.six.id, "preserved user id");
     assert.equal(me.recovery.state, "restored");
-    assert.equal(me.recovery.via, "import");
+    assert.equal(me.recovery.via, "auto");
     assert.equal(me.recovery.acknowledged, false);
     for (const f of ["yearOfStudy", "skills", "interests", "whatsapp", "xHandle"]) assert.ok(me.recovery.fields.includes(f), f);
     assert.deepEqual(me.profile.skills, ["JavaScript", "React", "Node.js"]);
+    assert.equal(me.profile.onboarded, false, "not published until the owner confirms");
+    assert.equal(me.profile.visibility.whatsapp, true, "v1 choice shown to the owner for confirmation");
+    assert.equal((await c.get("/api/me")).json.recovery.via, "auto", "restored once, not again");
+
+    const r = await c.post("/api/me/onboarding", {
+      name: "Six Legacy", skills: me.profile.skills, roles: ["frontend"], availability: "open", college: null, graduationYear: null,
+      whatsappVisible: false, xVisible: true,
+    });
+    assert.equal(r.status, 200, r.text);
+    me = r.json;
     assert.equal(me.profile.onboarded, true);
+    assert.equal(me.profile.visibility.whatsapp, false, "owner hid WhatsApp while confirming");
+    assert.deepEqual(me.profile.interests, ["Web Development", "AI/ML"], "interests kept through onboarding");
     assert.equal(await profileRows(LEGACY.six.id), 1);
     assert.equal((await c.post("/api/recovery/acknowledge")).status, 200);
     assert.equal((await c.get("/api/me")).json.recovery.acknowledged, true);
@@ -66,7 +89,8 @@ describe("automatic recovery (original account)", () => {
     assert.equal(me.recovery.state, "dismissed");
     assert.deepEqual(me.profile.skills, []);
     assert.equal(me.profile.whatsapp, null);
-    assert.equal(me.profile.onboarded, false, "back to onboarding");
+    assert.deepEqual(me.profile.roles, ["frontend"], "what the user added in v2 stays");
+    assert.equal(me.profile.onboarded, true, "still discoverable through the role picked in v2");
     assert.equal((await c.post("/api/recovery/start-fresh")).status, 409, "can't undo twice");
 
     const again = await c.post("/api/recovery/reapply");
@@ -81,7 +105,8 @@ describe("automatic recovery (original account)", () => {
 
   it("never overwrites information the user entered in v2", async () => {
     const c = await signedIn(LEGACY.hidden);
-    await c.post("/api/recovery/start-fresh");
+    assert.equal((await c.get("/api/me")).json.recovery.via, "auto");
+    assert.equal((await c.post("/api/recovery/start-fresh")).status, 200);
     const edit = await c.put("/api/me/profile", fullProfile({ name: "Hidden Contact", skills: ["Go"], interests: [], roles: ["backend"] }));
     assert.equal(edit.status, 200, edit.text);
     const r = await c.post("/api/recovery/reapply");
@@ -116,8 +141,8 @@ describe("automatic recovery (original account)", () => {
     assert.deepEqual((await c.get("/api/me")).json.recovery, { state: "none" });
   });
 
-  it("deferred import restores automatically at first sign-in", async () => {
-    // simulate an import run with --defer-profiles for one account
+  it("pending snapshot restores automatically at first sign-in, without publishing", async () => {
+    // reset to the state a fresh default import leaves behind
     await pool().query("UPDATE legacy_profiles SET status = 'pending', restored_to = NULL, restored_fields = '{}' WHERE user_id = $1", [LEGACY.old.id]);
     await pool().query("UPDATE profiles SET skills = '{}', skills_key = '{}', interests = '{}', interests_key = '{}', whatsapp = NULL, x_handle = NULL, year_of_study = NULL, onboarded_at = NULL WHERE user_id = $1", [LEGACY.old.id]);
     const c = await signedIn(LEGACY.old);
@@ -126,6 +151,7 @@ describe("automatic recovery (original account)", () => {
     assert.equal(me.recovery.via, "auto");
     assert.deepEqual(me.profile.skills, ["Rust", "Go"]);
     assert.equal(me.profile.visibility.x, false, "X was hidden in v1 and stays hidden");
+    assert.equal(me.profile.onboarded, false);
     const events = await pool().query("SELECT event FROM profile_recovery_events WHERE user_id = $1", [LEGACY.old.id]);
     assert.ok(events.rows.some((e) => e.event === "auto_restored"));
   });

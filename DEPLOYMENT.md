@@ -13,6 +13,42 @@
 
 Local helper scripts used for the first deployment live in `deploy-local/` on the deploying machine (git-ignored).
 
+## Launch runbook (Windows helper scripts in `deploy-local/`)
+
+| Step | Script | Touches | Needs |
+|---|---|---|---|
+| Email on + preview | `08-preview.ps1` | Vercel **preview/development** env only (`DATABASE_URL` → Neon dev, `SMTP_*`), Neon **dev**, branch `v2` → Preview | `NEON_DEV_*`; `SMTP_*` optional |
+| Fresh v1 backup + checks | `09-fresh-backup.ps1` | **read-only** (Supabase export, prod preflight) | `SUPABASE_DB_URL` (Session pooler string) in `secrets.env` |
+| Cutover | `10-cutover.ps1` | read-only preflight first; then Vercel **production** env (`DATABASE_URL`, `SMTP_*`), Neon **production** (schema + import), `main` → Production | `SMTP_*`, `NEON_PROD_*`, step 09 backup < 24 h; you type `CUTOVER` |
+| Close the v1 leak | `docs/supabase/close-v1-public-read.sql` | Supabase (policies only) | run in the Supabase SQL editor after the cutover |
+
+`10-cutover.ps1` stops on its own if the fresh backup is older than 24 h, the preflight finds a production account
+using a v1 email with a different id (delete such test accounts first — that v1 user would otherwise be skipped),
+the import or verification fails, or the merge conflicts. Between the schema migration and the new Production build
+(1–2 minutes) the *old* Production build returns errors; that's harmless while Production has no real users.
+
+### Environment variables
+
+| Variable | Production | Preview | Notes |
+|---|---|---|---|
+| `DATABASE_URL` | Neon `main`, pooled | Neon `dev`, pooled | set |
+| `BETTER_AUTH_SECRET` | random 32 bytes | a different value | set |
+| `APP_URL` | `https://codecompass-eta.vercel.app` | — (falls back to the preview URL) | set |
+| `SMTP_USER` / `SMTP_PASS` | Gmail address + App Password | same | **missing** — add to `secrets.env`, run `08-preview.ps1` |
+| `RESEND_API_KEY` / `EMAIL_FROM` | optional, needs a domain | | not used |
+| `SUPPORT_URL` | optional link shown on Forgot password / Privacy | | not set (Privacy says "reply to any email") |
+| `REQUIRE_EMAIL_VERIFICATION` | `false` | `false` | default |
+
+### Old URL
+
+`vercel.json` redirects (307) every request whose host is `code-compass-mu.vercel.app` (or one of the old project's
+`code-compass-*-aryans-projects-9694c788.vercel.app` deployment URLs) to `https://codecompass-eta.vercel.app`. This only
+takes effect if the **old** Vercel project (other account) builds the new `main` — its GitHub deployments show it's
+connected to this repo. If the old URL still serves v1 after the cutover: sign in to that Vercel account → the old
+project → Settings → Git → confirm the production branch is `main` and redeploy; or Settings → Domains →
+`code-compass-mu.vercel.app` → *Redirect to* `codecompass-eta.vercel.app`. The old project needs no environment
+variables for the redirect to work (redirects run before any function).
+
 ## 0. What you need
 
 | Item | Where | Notes |
@@ -21,7 +57,7 @@ Local helper scripts used for the first deployment live in `deploy-local/` on th
 | Neon account | neon.com | Free plan is enough to launch |
 | Vercel account | vercel.com | The existing project behind `code-compass-mu.vercel.app` |
 | Supabase dashboard | supabase.com | Only to take a fresh backup at cutover |
-| Resend account + a domain you control | resend.com | Needed for password-reset emails to reach users |
+| A Gmail account with 2-Step Verification + an App Password | myaccount.google.com/apppasswords | Sends password-reset, recovery and team emails (or Resend + a domain later) |
 | `openssl` | your machine | To generate `BETTER_AUTH_SECRET` |
 
 ## 1. Source control
@@ -39,7 +75,7 @@ Open a PR from `v2` → `main` but don't merge until §6. Confirm `git status` s
 
 ## 2. Neon
 
-1. Create a project (Postgres 16 or 17). Pick the region closest to your users — and use the **same** region for Vercel functions (§4) so each query doesn't cross an ocean.
+1. Create a project (Postgres 16–18; Code Compass runs on 18). Pick the region closest to your users — and use the **same** region for Vercel functions (§4) so each query doesn't cross an ocean.
 2. Neon creates a `main` branch → this is **production**. Create a second branch `dev` from it → **development/preview**.
 3. For each branch, copy the **pooled** connection string (host contains `-pooler`, ends with `?sslmode=require`).
 4. Apply the schema to both:
@@ -99,10 +135,12 @@ project's Root Directory is the repo root and that `api/index.ts` was detected u
 3. Import into production:
    ```bash
    npm run legacy:migrate -- --dump ./private/<fresh>.backup.gz --dry-run
+   DATABASE_URL="<prod direct url>" npm run legacy:preflight -- --dump ./private/<fresh>.backup.gz   # read-only
    DATABASE_URL="<prod pooled url>" npm run legacy:migrate -- --dump ./private/<fresh>.backup.gz --confirm-host <prod host>
    DATABASE_URL="<prod pooled url>" npm run legacy:verify  -- --dump ./private/<fresh>.backup.gz --login-email … --login-password …
    ```
-   The import is idempotent; re-running it only adds what's missing.
+   The import is idempotent; re-running it only adds what's missing. By default (Option C) v1 profiles stay out of
+   Discover until each owner signs in and confirms them; add `--publish-profiles` to show them all at once instead.
 4. Take a Neon snapshot / note the timestamp (restore point).
 5. Merge `v2` → `main`. Vercel deploys to Production. Re-run §5 against the production URL.
 6. Leave the Supabase project **untouched** (not deleted) for at least 30 days as a fallback.

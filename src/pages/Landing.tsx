@@ -231,6 +231,7 @@ function Feature({ eyebrow, title, body, points, visual, flip }: { eyebrow: stri
       </Reveal>
       <Reveal i={1} className={cn(flip && "lg:order-1")}>
         <div className="rounded-[var(--radius-panel)] border border-line bg-subtle p-5 sm:p-8">{visual}</div>
+        <p className="mt-2 text-right text-[0.72rem] text-ink-4">Illustrative example · people shown are fictional</p>
       </Reveal>
     </div>
   );
@@ -322,9 +323,9 @@ function Product() {
 
 const WHY = [
   { title: "Complementary skills", body: "A great hackathon team isn't four people with the same stack. Find the designer, the ML person or the backend engineer you're missing." },
-  { title: "Motivated collaborators", body: "Everyone here signed up because they want to build. Availability tells you who's looking right now." },
+  { title: "Motivated collaborators", body: "Availability shows who's looking for a team right now, so you reach out to people who are ready to build." },
   { title: "Beyond your friend group", body: "Meet people from other branches, years and colleges you'd never cross paths with in class." },
-  { title: "Projects that ship", body: "Teams with clear roles and a shared plan are the ones that make it to the demo." },
+  { title: "Projects that ship", body: "Start with clear roles and a shared plan, so everyone knows who's building what from day one." },
 ];
 
 function Why() {
@@ -357,8 +358,9 @@ function Privacy() {
           <p className="eyebrow"><Lock className="size-3.5" aria-hidden /> Privacy</p>
           <h2 className="mt-4 text-h2">You decide who sees <span className="em">what.</span></h2>
           <p className="mt-4 max-w-lg text-[1.02rem] leading-relaxed text-ink-3">
-            Profiles are visible only to signed-in members. Each contact method has its own switch, and hidden details never leave our servers — they aren't just hidden on screen.
+            Profiles are visible only to signed-in members. Each contact method has its own switch, and a hidden detail is never sent to anyone else — it isn't just hidden on screen.
           </p>
+          <Link to="/privacy" className="mt-5 inline-block text-[0.92rem] font-medium text-ink underline underline-offset-4">Read the privacy policy</Link>
         </Reveal>
         <Reveal i={1}>
           <div className="rounded-2xl border border-line bg-surface p-2 shadow-sm" role="img" aria-label="Illustrative contact visibility settings">
@@ -382,7 +384,7 @@ const FAQ = [
   ["Is it free?", "Yes. Code Compass is a student-built project and free to use."],
   ["Who can see my profile?", "Only signed-in members. You can hide your profile from discovery at any time, and every contact method has its own visibility switch."],
   ["Do I need to connect my LinkedIn account?", "No. You just paste your LinkedIn profile URL if you want it shown. We don't connect to, import from or scrape LinkedIn."],
-  ["I used Code Compass before. Is my account still there?", "Yes — existing accounts and profiles were carried over. Sign in with your usual email and password."],
+  ["I used Code Compass before. Is my account still there?", "Yes. Accounts from the earlier version were carried over — sign in with your usual email and password (or reset it if you've forgotten). Your old profile details come back when you sign in, and you choose what to show before you appear in Discover."],
 ];
 
 function Faq() {
@@ -440,7 +442,7 @@ function Footer() {
         </div>
         <nav className="flex flex-wrap gap-x-6 gap-y-2 text-[0.86rem] text-ink-3" aria-label="Footer">
           <a href="#how" className="hover:text-ink">How it works</a>
-          <a href="#privacy" className="hover:text-ink">Privacy</a>
+          <Link to="/privacy" className="hover:text-ink">Privacy policy</Link>
           <a href="#faq" className="hover:text-ink">FAQ</a>
           <Link to="/sign-in" className="hover:text-ink">Sign in</Link>
         </nav>

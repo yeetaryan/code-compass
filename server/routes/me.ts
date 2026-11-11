@@ -68,6 +68,8 @@ me.post("/onboarding", rateLimit("profile-write", { window: 60, max: 30 }), asyn
       skillsKey: skills.keys,
       roles: input.roles,
       availability: input.availability,
+      ...(input.whatsappVisible !== undefined && existing.whatsapp ? { whatsappVisible: input.whatsappVisible } : {}),
+      ...(input.xVisible !== undefined && existing.xHandle ? { xVisible: input.xVisible } : {}),
       onboardedAt: existing.onboardedAt ?? new Date(),
       updatedAt: new Date(),
     })

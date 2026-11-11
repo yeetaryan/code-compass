@@ -10,8 +10,8 @@
  * - Writes everything in one transaction; any error rolls back the whole run.
  * - Non-local targets require --confirm-host <hostname> as an explicit approval step.
  * - Every v1 account also gets a legacy_profiles snapshot (used for "Welcome back" + undo + verified manual recovery).
- *   By default v1 profiles are restored into the live profile at import (they show in Discover at launch);
- *   with --defer-profiles they stay "pending" and are restored the first time the owner signs in.
+ *   By default snapshots stay "pending": each is filled in when its owner first signs in and shown in Discover
+ *   only after the owner confirms it. --publish-profiles restores them all at import instead (v1 visibility as-is).
  * - Re-running with a fresher dump refreshes only snapshots that are still pending; restored profiles are never
  *   overwritten by older data.
  */
@@ -33,7 +33,7 @@ const dumpPath = arg("dump");
 const dryRun = flag("dry-run");
 const reportDir = arg("report-dir") ?? "./migration-output";
 if (!dumpPath) {
-  console.error("Usage: legacy:migrate --dump <file.backup[.gz]> [--dry-run] [--defer-profiles] [--confirm-host <host>] [--report-dir dir]");
+  console.error("Usage: legacy:migrate --dump <file.backup[.gz]> [--dry-run] [--publish-profiles] [--confirm-host <host>] [--report-dir dir]");
   process.exit(1);
 }
 
@@ -44,8 +44,8 @@ const source = {
   profiles: copyRows(dump, "public.profiles").rows,
   teams: copyRows(dump, "public.teams").rows,
 };
-const defer = flag("defer-profiles");
-const p = plan(source, { publish: !defer, source: arg("source") ?? "supabase-v1" });
+if (flag("defer-profiles")) console.log("Note: --defer-profiles is now the default.");
+const p = plan(source, { publish: flag("publish-profiles"), source: arg("source") ?? "supabase-v1" });
 
 console.log("Source:", { users: source.users.length, identities: source.identities.length, profiles: source.profiles.length, teams: source.teams.length });
 console.log("Plan:", p.stats);

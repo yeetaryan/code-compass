@@ -24,7 +24,8 @@
     "demo:reset": "bash tests/e2e/reset-demo.sh",
     "demo:seed": "tsx --env-file-if-exists=.env scripts/seed-demo.ts",
     "legacy:export": "tsx --env-file-if-exists=.env scripts/export-supabase.ts",
-    "legacy:compare": "tsx scripts/compare-dumps.ts"
+    "legacy:compare": "tsx scripts/compare-dumps.ts",
+    "legacy:preflight": "tsx --env-file-if-exists=.env scripts/preflight-cutover.ts"
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "1.7",

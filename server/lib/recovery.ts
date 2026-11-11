@@ -2,8 +2,9 @@
  * Historical (v1) profile recovery.
  *
  *  - Automatic: a v1 account's snapshot is keyed by its preserved user id. If it is still "pending" when the
- *    owner signs in, it is restored right away; either way the owner sees a one-time "Welcome back" summary
- *    and can undo ("Start fresh") or restore again later.
+ *    owner signs in, its details are filled into the (empty) live profile right away, but the profile stays out
+ *    of Discover until the owner checks them and finishes onboarding. They can undo ("Start fresh") or
+ *    restore again later.
  *  - Manual: a signed-in user can move a v1 profile into their (different) account only after entering a
  *    6-digit code sent to the v1 email address. Requests always get the same answer, so nobody can learn
  *    which emails had accounts.
@@ -74,6 +75,9 @@ async function applyLocked(tx: Tx, snap: Snapshot, targetId: string, via: "auto"
   const live = await lockProfile(tx, targetId);
   const now = new Date();
   const { patch, fields } = mergeSnapshot(livePick(live), snap.data, now);
+  // Automatic and repeat restores never publish on their own: the owner confirms the restored details in
+  // onboarding first (old data may be out of date). A manual recovery is itself an explicit review, so it may.
+  if (via !== "manual") delete patch.onboardedAt;
   if (Object.keys(patch).length) await tx.update(profiles).set({ ...patch, updatedAt: now }).where(eq(profiles.userId, targetId));
   const claimedElsewhere = targetId !== snap.userId;
   if (claimedElsewhere) {

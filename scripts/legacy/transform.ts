@@ -39,12 +39,12 @@ export type Planned = {
 const ts = (v: string | null) => (v ? new Date(v) : new Date());
 
 /**
- * @param publish  true (default): restore each v1 profile into the live profile now, so it appears in Discover at
- *                 launch exactly as in v1. false: import snapshots as "pending"; each one is restored automatically
- *                 the first time its owner signs in.
+ * @param publish  false (default): import snapshots as "pending"; each one is filled into the owner's profile the
+ *                 first time they sign in, and appears in Discover only after they confirm it in onboarding.
+ *                 true: restore every v1 profile now so it shows in Discover at launch exactly as in v1.
  */
 export function plan(input: { users: Row[]; identities: Row[]; profiles: Row[]; teams: Row[] }, opts: { publish?: boolean; source?: string } = {}): Planned {
-  const publish = opts.publish ?? true;
+  const publish = opts.publish ?? false;
   const source = opts.source ?? "supabase-v1";
   const importedAt = new Date();
   const out: Planned = { users: [], accounts: [], profiles: [], teams: [], snapshots: [], issues: [], skipped: [], stats: {} };

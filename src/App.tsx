@@ -11,6 +11,7 @@ const SignIn = lazy(() => import("./pages/auth/SignIn"));
 const SignUp = lazy(() => import("./pages/auth/SignUp"));
 const ForgotPassword = lazy(() => import("./pages/auth/ForgotPassword"));
 const ResetPassword = lazy(() => import("./pages/auth/ResetPassword"));
+const Privacy = lazy(() => import("./pages/Privacy"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Recover = lazy(() => import("./pages/Recover"));
 const Discover = lazy(() => import("./pages/Discover"));
@@ -52,6 +53,7 @@ export function App() {
           <Route path="/sign-up" element={<GuestOnly><SignUp /></GuestOnly>} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/privacy" element={<Privacy />} />
           <Route path="/onboarding" element={<RequireAuth allowUnonboarded><Onboarding /></RequireAuth>} />
           <Route path="/recover" element={<RequireAuth allowUnonboarded><Recover /></RequireAuth>} />
           <Route element={<RequireAuth><AppShell /></RequireAuth>}>

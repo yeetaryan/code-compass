@@ -30,6 +30,12 @@ tests/e2e/shots/
 
 # local deployment helper scripts, logs and secrets (never commit)
 deploy-local/
+secrets.env
+*.pem
+dump*.sql
+*backup*.sql
 
+# Vercel CLI (vercel link / vercel env pull)
 .vercel
 .env*
+!.env.example

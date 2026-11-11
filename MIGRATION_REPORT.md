@@ -1,8 +1,12 @@
 # Migration report — Supabase → Neon / Better Auth
 
-**Status:** migration tooling built and verified against a local PostgreSQL 16 stand-in for Neon (10 Nov 2026).
-**Not yet run against Neon production** — no credentials were available in the build environment. The original
-Supabase project and backup were not modified.
+**Status:** migration tooling built and verified against a local PostgreSQL 16 stand-in for Neon (re-run 11 Nov 2026 with
+the launch strategy below). **Not yet run against Neon production** — that waits for your approval (`deploy-local\10-cutover.ps1`).
+The original Supabase project and backup were not modified.
+
+**Launch strategy (Option C):** every v1 account, password hash and profile is preserved, but no v1 profile is shown
+in Discover at launch. When the owner signs in, their old details are filled into their profile and they confirm them
+(and who can see their WhatsApp / X) in onboarding; only then do they appear in Discover.
 
 ## Source
 
@@ -43,9 +47,9 @@ targets require `--confirm-host <hostname>`. A JSON report (row ids only, no ema
 | `profiles.twitter` | `profiles.x_handle` | `@handle`, `handle` or `x.com/…` URL → bare handle |
 | `whatsapp_visible`, `twitter_visible` | `whatsapp_visible`, `x_visible` | **User choices preserved** |
 | — | `email_visible` | `false` (email was never shown in v1) |
-| name + (skills or interests) present | `onboarded_at = updated_at` | Same rule as v1's Browse filter, so the same 31 people stay discoverable |
+| name + (skills or interests) present | (with `--publish-profiles` only) `onboarded_at = updated_at` | Default (Option C): `onboarded_at` stays empty until the owner confirms in onboarding |
 | whole original row | `legacy_profiles.raw` jsonb | Audit trail + basis for profile recovery; never returned by the API |
-| normalised v1 profile | `legacy_profiles.data` jsonb, status `restored` / `empty` | Powers "Welcome back", Start fresh / restore again, and verified manual recovery |
+| normalised v1 profile | `legacy_profiles.data` jsonb, status `pending` / `empty` | Filled in at the owner's first sign-in; powers "Welcome back", Start fresh / restore again, and verified manual recovery |
 | `teams.*` | `teams` + owner row in `team_members` | 0 rows in source. `whatsapp_group` kept only if `https://` (a `javascript:` URL is dropped — tested) |
 
 ## Results (local run against the real backup)
@@ -60,13 +64,24 @@ targets require `--confirm-host <hostname>`. A JSON report (row ids only, no ema
 | Re-run | — | 0 inserted, 67 already present | idempotent |
 
 Transformations: 14 WhatsApp numbers given `+91`, 7 kept as-is, **1 invalid (9 digits) not migrated**; 10 X handles
-normalised; 31 profiles discoverable immediately; 30 profiles (name only) need to add a skill or role to appear in
-Discover; 0 tags dropped.
+normalised; 0 tags dropped.
 
-Recovery snapshots: 67 written — 35 `restored` at import (had skills, interests, year or contacts), 32 `empty`
-(6 with no profile row, 26 with a name only).
+### What the numbers mean (61 vs 31 vs 35)
 
-### Verification (`npm run legacy:verify`) — 20/20 passed (re-run 11 Nov 2026 with recovery snapshots)
+| Number | What it counts |
+|---:|---|
+| **67** | v1 accounts (`auth.users`) — all migrated with the same id, email, password hash and timestamps |
+| **61** | v1 profile rows (`public.profiles`). The other **6** accounts had no profile row at all |
+| **35** | of the 61, profiles with *something to bring back* beyond a name (year, skills, interests, WhatsApp or X) → snapshot `pending` |
+| **31** | of the 35, profiles v1's Browse page actually showed (name + skills or interests). The other **4** had only a year and/or contacts |
+| **26** | of the 61, profiles with a name only → snapshot `empty` (6 + 26 = **32** `empty`) |
+| **21 / 17** | valid WhatsApp numbers / of which marked visible in v1 (v1 defaulted the switch to *on*) |
+| **10 / 8** | X handles / of which marked visible |
+| **0** | v2 profiles in Discover right after the import (Option C); each appears once its owner signs in and confirms |
+
+So "61 profiles" (rows in the old database) and "31 visible" (what v1's Browse showed) were both right; they count different things.
+
+### Verification (`npm run legacy:verify`) — 20/20 passed (re-run 11 Nov 2026, default Option C import)
 
 ```
 PASS  every source user exists with the same id  (67/67)
@@ -81,7 +96,7 @@ PASS  every v1 account has a recovery snapshot  (67/67)
 PASS  snapshot emails match the v1 accounts  (0 mismatches)
 PASS  original v1 rows kept in legacy_profiles.raw  (0 missing)
 PASS  accounts without a v1 profile are marked empty  (6 such accounts)
-PASS  snapshot status summary  ({"restored":35,"empty":32})
+PASS  snapshot status summary  ({"pending":35,"empty":32})
 PASS  every user has a profile row  (0 without)
 PASS  legacy teams migrated  (0/0)
 PASS  every team has its owner as a member
@@ -110,10 +125,11 @@ Run `legacy:verify --login-email … --login-password …` with **your own** acc
 2. **13 never-confirmed accounts** are migrated with `email_verified = false`. With `REQUIRE_EMAIL_VERIFICATION=false` (default) they can sign in normally; if you turn it on, they must confirm via email first.
 3. **Password reset needs email.** It works with either Resend (needs a domain) or SMTP such as a Gmail account with an App Password (no domain). Until one is configured, reset links can't be sent and the Forgot-password page says so.
 4. **Stale dump.** Accounts created after the dump was taken are missing until you re-run the import with a fresh backup at cutover (idempotent).
-5. **Graduation year** isn't inferred from "3rd year"-style text; users are prompted to set it.
-6. **1 WhatsApp number** was invalid and isn't shown; its owner can re-enter it. The original value is kept in `profiles.legacy`.
-7. **6 users had no profile row** in Supabase (likely deleted by them — v1's RLS allowed it; can't be proven). They get an empty, non-discoverable profile and land in onboarding.
-8. Timestamps are stored at millisecond rather than microsecond precision.
+5. **v1 profiles aren't in Discover at launch** (Option C). They appear as their owners return. To show all 31 at once instead, run the import with `--publish-profiles` (v1 visibility switches are then applied as-is).
+6. **Graduation year** isn't inferred from "3rd year"-style text; users are prompted to set it.
+7. **1 WhatsApp number** was invalid and isn't restored; its owner can re-enter it. The original value is kept in `legacy_profiles.raw`.
+8. **6 users had no profile row** in Supabase (likely deleted by them — v1's RLS allowed it; can't be proven). They get an empty, non-discoverable profile and land in onboarding.
+9. Timestamps are stored at millisecond rather than microsecond precision.
 
 ## Rollback
 

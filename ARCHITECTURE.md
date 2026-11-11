@@ -11,10 +11,11 @@ Browser ──HTTPS──▶ Vercel
                           ├── /api/people   discovery + profile detail (privacy projection)
                           ├── /api/avatars  avatar bytes (access-checked)
                           ├── /api/teams    teams, membership, join requests
+                          ├── /api/recovery v1 profile recovery (restore, start fresh, emailed-code claim)
                           └── /api/health   readiness (DB) · /api/health/live liveness
                                  │  pg pool (TCP + TLS)
                                  ▼
-                          Neon Postgres (pooled endpoint)        Resend (email, optional)
+                          Neon Postgres (pooled endpoint)        Email: Gmail SMTP or Resend
 ```
 
 **Why this shape**
@@ -83,6 +84,7 @@ profile_recovery_events  audit trail (event names + field lists only — never c
 | Pending join requests | Team owner only |
 | `legacy_profiles` (raw v1 rows, source emails), recovery codes, password hashes, sessions | Never returned by any endpoint |
 | A v1 profile via manual recovery | Only after the emailed code is verified by the same signed-in account; WhatsApp masked in the review |
+| A returning v1 user's restored profile | Only the owner, until they confirm it in onboarding (then the normal rules apply) |
 
 The rule is enforced **in SQL**: `PUBLIC_PROFILE_COLUMNS` (`server/lib/profile-view.ts`) uses
 `CASE WHEN p.x_visible THEN p.x_handle END`, so a hidden value is never read into the API process for another
@@ -92,10 +94,11 @@ user, let alone sent. `verify-migration.ts` and the API tests assert this.
 
 Every v1 (Supabase) account gets a `legacy_profiles` snapshot during migration, keyed by its preserved user id.
 
-* **Automatic.** By default the import restores each v1 profile into the live profile, so the 31 profiles that were
-  visible in v1 are discoverable at launch. (With `--defer-profiles` snapshots stay `pending` and are restored the
-  first time the owner signs in.) On first sign-in the owner sees a one-time *Welcome back* summary listing what was
-  restored, with **Review**, **Looks good** and **Start fresh**.
+* **Automatic, but confirmed by the owner (launch default, "Option C").** The import leaves snapshots `pending` and
+  no v1 profile in Discover. At the owner's first sign-in the snapshot is filled into their empty profile, and they land
+  in onboarding with a *Welcome back* notice listing what came back, a switch for each restored contact (pre-set to
+  their v1 choice) and **Start fresh instead**. Their profile appears in Discover only when they finish onboarding.
+  (`--publish-profiles` restores and publishes everything at import instead.)
 * **Never overwrites.** A snapshot only fills fields that are empty in the live profile; a contact's visibility
   travels with its value. *Start fresh* clears only values that are still exactly what was restored, and the user can
   restore again later. Rules live in `server/lib/recovery-merge.ts`, shared by the import and the API.
@@ -113,7 +116,7 @@ Every v1 (Supabase) account gets a `legacy_profiles` snapshot during migration, 
 * Passwords: scrypt (Better Auth default) for new/reset passwords; migrated bcrypt hashes verified with `bcryptjs`. Min 8 / max 128 characters for new passwords.
 * Sessions: HttpOnly, `Secure` on https, `SameSite=Lax`, 30-day expiry with daily rolling refresh; all sessions revoked on password reset; "sign out other devices".
 * CSRF: Better Auth checks `Origin` against `trustedOrigins`; app API accepts only JSON or raw image bodies from the same origin.
-* Rate limits (per IP for auth, per user for the API): sign-in 8/min, sign-up 5/10 min, reset requests 4/15 min, team creation 10/h, join requests 30/h, profile writes 30/min, discovery 120/min.
+* Rate limits (per IP for auth, per user for the API; plus a 24 h wait after an owner declines a join request): sign-in 8/min, sign-up 5/10 min, reset requests 4/15 min, team creation 10/h, join requests 30/h, profile writes 30/min, discovery 120/min.
 * Input: strict zod schemas, length limits, control-character stripping, LIKE-wildcard escaping, URL normalisation (LinkedIn `/in/` profiles only, http(s) only for links, https only for team chat links), image magic-byte sniffing for avatars.
 * Output: React escapes text; external links use `target="_blank" rel="noopener noreferrer nofollow"`; hrefs are built server-side from validated values.
 * Headers: CSP (`script-src 'self'`, no inline scripts), HSTS, `X-Frame-Options: DENY`, `nosniff`, strict referrer, Permissions-Policy; API responses `Cache-Control: no-store`.
@@ -133,5 +136,7 @@ Every v1 (Supabase) account gets a `legacy_profiles` snapshot during migration, 
   with `provider_id = 'linkedin'`; the profile's `linkedin_url` stays user-controlled. It requires a LinkedIn
   developer app; profile imports beyond basic OpenID claims need LinkedIn partner approval, so v1 deliberately uses a
   pasted URL only — nothing is scraped or imported.
-* **Notifications:** `team_join_requests` already records state; sending an email to owners on new requests is a `sendMail` call in `POST /teams/:id/requests`.
+* **Notifications:** `server/lib/notify.ts` emails the owner about a new join request and the requester when accepted,
+  only to confirmed addresses, after the response. A declined requester waits 24 h before asking again. More events
+  would go in the same file; per-user email preferences would be a boolean on `profiles`.
 * **Object storage:** replace the `avatars` table reads/writes in `routes/me.ts` / `routes/people.ts` with R2/S3 signed URLs.

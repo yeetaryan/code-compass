@@ -8,6 +8,7 @@ import { normalizeTags, tagKey } from "../../shared/tags.js";
 import { db } from "../db/client.js";
 import { profiles, teamJoinRequests, teamMembers, teams } from "../db/schema.js";
 import { AppError, body, currentUser, forbidden, notFound, query, rateLimit, requireAuth, type AppEnv } from "../lib/http.js";
+import { notifyAccepted, notifyJoinRequest } from "../lib/notify.js";
 import { avatarUrl, likeEscape } from "../lib/profile-view.js";
 
 export const teamRoutes = new Hono<AppEnv>();
@@ -228,10 +229,10 @@ teamRoutes.patch("/:id", rateLimit("team-write", { window: 60, max: 30 }), async
     }
     await tx.update(teams).set({ ...values, updatedAt: new Date() }).where(eq(teams.id, id));
     if (values.status !== "recruiting") {
-      // closing or marking full ends any pending requests
+      // closing or marking full ends any pending requests (decidedBy null = automatic, not the owner's verdict)
       await tx
         .update(teamJoinRequests)
-        .set({ status: "declined", decidedAt: new Date(), decidedBy: user.id })
+        .set({ status: "declined", decidedAt: new Date(), decidedBy: null })
         .where(and(eq(teamJoinRequests.teamId, id), eq(teamJoinRequests.status, "pending")));
     }
   });
@@ -261,6 +262,12 @@ teamRoutes.post("/:id/requests", rateLimit("join-request", { window: 3600, max: 
     if (isMember.rows.length) throw new AppError(409, "already_member", "You're already on this team");
     if (t.status !== "recruiting") throw new AppError(409, "not_recruiting", "This team isn't taking new members");
     if (t.members >= t.max_members) throw new AppError(409, "team_full", "This team is full");
+    // After a decline, wait a day before asking again (keeps owners' inboxes free of repeat requests).
+    const recent = await tx.execute(sql`
+      SELECT 1 FROM team_join_requests
+      WHERE team_id = ${id} AND user_id = ${user.id} AND status = 'declined' AND decided_by = ${t.owner_id}
+        AND decided_at > now() - interval '24 hours' LIMIT 1`);
+    if (recent.rows.length) throw new AppError(429, "recently_declined", "The owner declined your last request. You can ask again tomorrow.");
     const inserted = await tx
       .insert(teamJoinRequests)
       .values({ teamId: id, userId: user.id, message: input.message })
@@ -268,6 +275,7 @@ teamRoutes.post("/:id/requests", rateLimit("join-request", { window: 3600, max: 
       .returning({ id: teamJoinRequests.id });
     if (!inserted.length) throw new AppError(409, "already_requested", "You've already asked to join this team");
   });
+  notifyJoinRequest(id, user.id, input.message ?? null);
   return c.json(await teamDetail(user.id, id), 201);
 });
 
@@ -288,7 +296,7 @@ teamRoutes.post("/:id/requests/:requestId", rateLimit("team-write", { window: 60
   const id = parseId(c.req.param("id"));
   const requestId = parseId(c.req.param("requestId"));
   const { decision } = await body(c, decideRequestSchema);
-  await db().transaction(async (tx) => {
+  const acceptedUser = await db().transaction(async (tx) => {
     const t = await lockTeam(tx, id);
     if (t.owner_id !== user.id) throw forbidden("Only the team owner can respond to requests");
     const [req] = await tx
@@ -304,7 +312,7 @@ teamRoutes.post("/:id/requests/:requestId", rateLimit("team-write", { window: 60
         await tx.update(teams).set({ status: "full", updatedAt: new Date() }).where(eq(teams.id, id));
         await tx
           .update(teamJoinRequests)
-          .set({ status: "declined", decidedAt: new Date(), decidedBy: user.id })
+          .set({ status: "declined", decidedAt: new Date(), decidedBy: null })
           .where(and(eq(teamJoinRequests.teamId, id), eq(teamJoinRequests.status, "pending"), ne(teamJoinRequests.id, requestId)));
       }
     }
@@ -312,7 +320,9 @@ teamRoutes.post("/:id/requests/:requestId", rateLimit("team-write", { window: 60
       .update(teamJoinRequests)
       .set({ status: decision === "accept" ? "accepted" : "declined", decidedAt: new Date(), decidedBy: user.id })
       .where(eq(teamJoinRequests.id, requestId));
+    return decision === "accept" ? req.userId : null;
   });
+  if (acceptedUser) notifyAccepted(id, acceptedUser);
   return c.json(await teamDetail(user.id, id));
 });
 

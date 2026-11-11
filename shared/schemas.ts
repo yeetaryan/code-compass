@@ -72,6 +72,9 @@ export const onboardingSchema = z
     skills: tagList(LIMITS.skills).min(1, "Add at least one skill"),
     roles: z.array(z.enum(ROLE_IDS)).min(1, "Pick at least one role").max(LIMITS.roles),
     availability: z.enum(AVAILABILITY_IDS),
+    // Returning v1 users confirm who may see the contact details restored from their old profile.
+    whatsappVisible: z.boolean().optional(),
+    xVisible: z.boolean().optional(),
   })
   .strict();
 export type OnboardingInput = z.input<typeof onboardingSchema>;

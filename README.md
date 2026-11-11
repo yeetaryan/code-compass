@@ -37,7 +37,7 @@ open roles.
 | API | [Hono](https://hono.dev) running as one Vercel serverless function (`api/index.ts`); the same app runs as a plain Node server locally |
 | Auth | [Better Auth](https://better-auth.com) (email/password, scrypt for new passwords, bcrypt verification for migrated Supabase hashes) |
 | Database | PostgreSQL on [Neon](https://neon.com), [Drizzle ORM](https://orm.drizzle.team) + versioned SQL migrations, `pg` driver (works with any Postgres) |
-| Email | [Resend](https://resend.com) HTTP API (optional) |
+| Email | Gmail SMTP with an App Password (no domain needed), or [Resend](https://resend.com) once you own a domain |
 | Hosting | Vercel (static site + function), Neon (database), GitHub (source) |
 
 Architecture, data model and the privacy model are described in [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -127,7 +127,7 @@ Vercel + Neon, step by step: [DEPLOYMENT.md](DEPLOYMENT.md). Backups and restore
 | First request after a quiet period takes a few seconds | Neon's free compute scales to zero after 5 minutes; the API retries and the UI shows loading states. Expected. |
 | `Invalid environment configuration` on start | A required variable is missing or malformed; the message lists which (never the values). |
 | Signed in but immediately signed out on production | `APP_URL` doesn't match the domain you're visiting, so cookies/origin checks fail. Set it to the exact public URL. |
-| Password reset email never arrives | `RESEND_API_KEY` missing, or `EMAIL_FROM` isn't on a domain verified in Resend. Check the function logs for `[mail]`. |
+| Password reset email never arrives | No email provider set (`SMTP_USER`/`SMTP_PASS` or `RESEND_API_KEY`), a wrong Gmail App Password, or (Resend) `EMAIL_FROM` isn't on a verified domain. Check the function logs for `[mail]`. Gmail sends at most ~500 emails a day. |
 | `relation "users" does not exist` | Migrations haven't been applied to that database: `npm run db:migrate`. |
 | `429 Too many attempts` while testing | Auth rate limits are active outside development. Wait a minute, or run with the default development `NODE_ENV`. |
 | API returns 503 `db_unavailable` | Database unreachable (wrong URL, Neon suspended for quota, outage). Check `/api/health`. |

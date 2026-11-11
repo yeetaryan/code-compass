@@ -62,7 +62,7 @@ export default function SignUp() {
           {(a) => <PasswordInput {...a} autoComplete="new-password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} />}
         </Field>
         <Button type="submit" size="lg" className="w-full" loading={busy}>Create account</Button>
-        <p className="text-center text-[0.8rem] leading-relaxed text-ink-4">Your email is never shown to other members unless you choose to show it.</p>
+        <p className="text-center text-[0.8rem] leading-relaxed text-ink-4">Your email is never shown to other members unless you choose to show it. See our <Link to="/privacy" className="underline underline-offset-4 hover:text-ink">privacy policy</Link>.</p>
       </form>
     </AuthLayout>
   );

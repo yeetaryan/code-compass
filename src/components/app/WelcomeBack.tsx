@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import type { RecoveredField, RecoveryState } from "@shared/api-types";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import { useAcknowledgeRecovery, useReapply, useStartFresh } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
@@ -27,7 +28,6 @@ const fail = (e: unknown) => toast.error(e instanceof Error ? e.message : "Somet
 /** One-time summary after a v1 profile was restored into this account. */
 export function WelcomeBackBanner({ recovery, className }: { recovery: RecoveryState; className?: string }) {
   const ack = useAcknowledgeRecovery();
-  const fresh = useStartFresh();
   const navigate = useNavigate();
   const [confirm, setConfirm] = useState(false);
   if (recovery.state !== "restored" || recovery.acknowledged) return null;
@@ -52,34 +52,71 @@ export function WelcomeBackBanner({ recovery, className }: { recovery: RecoveryS
           <Button size="sm" variant="ghost" onClick={() => setConfirm(true)}>Start fresh</Button>
         </div>
       </div>
-      <Dialog open={confirm} onOpenChange={setConfirm}>
-        <DialogContent title="Start fresh?" description="We'll remove the details we restored from your old profile. Anything you've changed since stays. You can restore them again later.">
-          <div className="flex justify-end gap-2">
-            <DialogClose asChild><Button variant="ghost">Keep my profile</Button></DialogClose>
-            <Button
-              variant="danger"
-              loading={fresh.isPending}
-              onClick={() =>
-                fresh.mutateAsync(undefined).then(() => {
-                  setConfirm(false);
-                  toast("Restored details removed");
-                  navigate("/onboarding", { replace: true });
-                }, fail)
-              }
-            >
-              Start fresh
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <StartFreshDialog open={confirm} onOpenChange={setConfirm} onDone={() => navigate("/onboarding", { replace: true })} />
     </section>
   );
 }
 
+export type ContactConfirm = { label: string; value: string; visible: boolean; onChange: (v: boolean) => void };
+
+/** Confirm dialog shared by the banner and onboarding. */
+function StartFreshDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenChange: (v: boolean) => void; onDone: () => void }) {
+  const fresh = useStartFresh();
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent title="Start fresh?" description="We'll remove the details we restored from your old profile. Anything you've changed since stays. You can restore them again later.">
+        <div className="flex justify-end gap-2">
+          <DialogClose asChild><Button variant="ghost">Keep my profile</Button></DialogClose>
+          <Button
+            variant="danger"
+            loading={fresh.isPending}
+            onClick={() => fresh.mutateAsync(undefined).then(() => { onOpenChange(false); toast("Restored details removed"); onDone(); }, fail)}
+          >
+            Start fresh
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /** Shown on onboarding for returning users. */
-export function RecoveryNotice({ recovery, emailEnabled }: { recovery: RecoveryState; emailEnabled: boolean }) {
+export function RecoveryNotice({ recovery, emailEnabled, contacts = [] }: { recovery: RecoveryState; emailEnabled: boolean; contacts?: ContactConfirm[] }) {
   const reapply = useReapply();
-  const navigate = useNavigate();
+  const [confirm, setConfirm] = useState(false);
+  if (recovery.state === "restored" && recovery.via !== "manual")
+    return (
+      <section className="mb-8 rounded-2xl border border-needle/20 bg-needle-soft/50 p-5 sm:p-6" aria-labelledby="welcome-back-title">
+        <div className="flex gap-3">
+          <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-full bg-surface text-needle-ink"><History className="size-4" /></span>
+          <div className="min-w-0 flex-1">
+            <h2 id="welcome-back-title" className="font-display text-[1.1rem] font-semibold tracking-tight">Welcome back to Code Compass.</h2>
+            <p className="mt-1 text-[0.92rem] leading-relaxed text-ink-2">
+              Looks like you've been here before. We brought back your {list(recovery.fields)} from your previous profile. Check the details
+              below and finish setting up — your profile only appears in Discover after you finish.
+            </p>
+            {contacts.length > 0 && (
+              <div className="mt-4 space-y-2.5 rounded-xl border border-line bg-surface p-3.5">
+                <p className="text-[0.82rem] font-medium text-ink-3">Who can see your restored contact details?</p>
+                {contacts.map((c) => (
+                  <label key={c.label} className="flex items-center justify-between gap-3 text-[0.9rem]">
+                    <span className="min-w-0">
+                      <span className="font-medium">{c.label}</span> <span className="text-ink-3">{c.value}</span>
+                      <span className="block text-[0.8rem] text-ink-4">{c.visible ? "Visible to signed-in members" : "Hidden — only you can see it"}</span>
+                    </span>
+                    <Switch checked={c.visible} onCheckedChange={c.onChange} aria-label={`Show my ${c.label} to signed-in members`} />
+                  </label>
+                ))}
+              </div>
+            )}
+            <button type="button" onClick={() => setConfirm(true)} className="mt-3 text-[0.86rem] text-ink-3 underline-offset-4 hover:text-ink hover:underline">
+              Start fresh instead
+            </button>
+          </div>
+        </div>
+        <StartFreshDialog open={confirm} onOpenChange={setConfirm} onDone={() => undefined} />
+      </section>
+    );
   if (recovery.state === "restored") return <WelcomeBackBanner recovery={recovery} className="mb-8" />;
   if (recovery.state === "empty")
     return (
@@ -92,7 +129,7 @@ export function RecoveryNotice({ recovery, emailEnabled }: { recovery: RecoveryS
     return (
       <div className="mb-8 flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5 text-[0.92rem] text-ink-2 sm:flex-row sm:items-center sm:justify-between">
         <span>Changed your mind? Your previous profile is still available.</span>
-        <Button size="sm" variant="secondary" loading={reapply.isPending} onClick={() => reapply.mutateAsync(undefined).then(() => { toast.success("Previous profile restored"); navigate("/discover"); }, fail)}>
+        <Button size="sm" variant="secondary" loading={reapply.isPending} onClick={() => reapply.mutateAsync(undefined).then(() => toast.success("Previous profile restored — check it below"), fail)}>
           Restore my previous profile
         </Button>
       </div>

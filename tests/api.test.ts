@@ -17,7 +17,7 @@ const FIXTURE = "./migration-output/test-fixture.backup";
 before(async () => {
   await resetDatabase();
   writeFixtureDump(FIXTURE);
-  execFileSync("npx", ["tsx", "scripts/migrate-legacy.ts", "--dump", FIXTURE, "--report-dir", "./migration-output/test"], {
+  execFileSync("npx", ["tsx", "scripts/migrate-legacy.ts", "--dump", FIXTURE, "--report-dir", "./migration-output/test", "--publish-profiles"], {
     env: { ...process.env, DATABASE_URL: TEST_DB },
     stdio: "pipe",
   });
@@ -36,7 +36,7 @@ describe("legacy migration", () => {
   });
 
   it("is idempotent", () => {
-    const out = execFileSync("npx", ["tsx", "scripts/migrate-legacy.ts", "--dump", FIXTURE, "--report-dir", "./migration-output/test"], {
+    const out = execFileSync("npx", ["tsx", "scripts/migrate-legacy.ts", "--dump", FIXTURE, "--report-dir", "./migration-output/test", "--publish-profiles"], {
       env: { ...process.env, DATABASE_URL: TEST_DB },
     }).toString();
     assert.match(out, /inserted: \{ users: 0, accounts: 0, profiles: 0, teams: 0 \}/);
@@ -114,6 +114,23 @@ describe("authentication", () => {
     assert.equal((await new Client(app).signIn(LEGACY.hidden.email, LEGACY.hidden.password)).status, 401);
     assert.equal((await new Client(app).signIn(LEGACY.hidden.email, "brand-new-pass-1")).status, 200);
     LEGACY.hidden.password = "brand-new-pass-1";
+  });
+
+  it("email verification: unconfirmed v1 account confirms via the emailed link", async () => {
+    const c = new Client(app);
+    assert.equal((await c.signIn(LEGACY.unconfirmed.email, LEGACY.unconfirmed.password)).status, 200);
+    assert.equal((await c.get("/api/me")).json.user.emailVerified, false);
+    const before = testOutbox.length;
+    const r = await c.post("/api/auth/send-verification-email", { email: LEGACY.unconfirmed.email, callbackURL: "/discover" });
+    assert.equal(r.status, 200, r.text);
+    for (let i = 0; i < 50 && !testOutbox.slice(before).some((m) => m.to === LEGACY.unconfirmed.email); i++) await new Promise((res) => setTimeout(res, 20));
+    const mail = testOutbox.slice(before).find((m) => m.to === LEGACY.unconfirmed.email)!;
+    assert.ok(mail, "confirmation email sent");
+    const link = new URL(mail.text.match(/https?:\/\/\S+/)![0]);
+    const bad = await c.get(`/api/auth/verify-email?token=not-a-real-token`);
+    assert.notEqual(bad.status, 200, "forged token rejected");
+    await c.get(`${link.pathname}${link.search}`);
+    assert.equal((await c.get("/api/me")).json.user.emailVerified, true);
   });
 
   it("reset request for an unknown email looks identical (no account enumeration)", async () => {
@@ -349,7 +366,17 @@ describe("teams", () => {
     }
     await fresh.signUp("Fresh", "fresh@teams.test");
     joinerId = (await joiner.get("/api/me")).json.user.id;
+    // notifications only go to confirmed addresses; the stranger stays unconfirmed
+    await pool().query("UPDATE users SET email_verified = true WHERE email IN ('owner@teams.test', 'joiner@teams.test')");
   });
+  const waitMail = async (to: string, since: number) => {
+    for (let i = 0; i < 60; i++) {
+      const m = testOutbox.slice(since).find((x) => x.to === to);
+      if (m) return m;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    return undefined;
+  };
 
   const team = (over: Record<string, unknown> = {}) => ({
     name: "Compass Crew",
@@ -396,8 +423,15 @@ describe("teams", () => {
   });
 
   it("join request → duplicate blocked → stranger can't approve → owner accepts", async () => {
+    const since = testOutbox.length;
     const r = await joiner.post(`/api/teams/${teamId}/requests`, { message: "I do design!" });
     assert.equal(r.status, 201, r.text);
+    const ownerMail = await waitMail("owner@teams.test", since);
+    assert.ok(ownerMail, "owner is emailed about the request");
+    assert.equal(ownerMail!.subject, "Joiner Person wants to join Compass Crew v2");
+    assert.match(ownerMail!.text, /I do design!/);
+    assert.match(ownerMail!.text, new RegExp(`/teams/${teamId}`));
+    assert.ok(!ownerMail!.text.includes("chat.whatsapp.com"), "no private link in emails");
     assert.equal(r.json.viewerState, "pending");
     assert.equal((await joiner.post(`/api/teams/${teamId}/requests`, {})).status, 409);
     const view = await owner.get(`/api/teams/${teamId}`);
@@ -405,8 +439,10 @@ describe("teams", () => {
     const reqId = view.json.pendingRequests[0].id;
     assert.equal((await stranger.post(`/api/teams/${teamId}/requests/${reqId}`, { decision: "accept" })).status, 403);
     assert.equal((await joiner.post(`/api/teams/${teamId}/requests/${reqId}`, { decision: "accept" })).status, 403);
+    const sinceAccept = testOutbox.length;
     const acc = await owner.post(`/api/teams/${teamId}/requests/${reqId}`, { decision: "accept" });
     assert.equal(acc.status, 200, acc.text);
+    assert.equal((await waitMail("joiner@teams.test", sinceAccept))?.subject, "You're on Compass Crew v2");
     assert.equal(acc.json.memberCount, 2);
     assert.equal(acc.json.status, "full", "auto-marked full at max members");
     const asMember = await joiner.get(`/api/teams/${teamId}`);
@@ -438,6 +474,9 @@ describe("teams", () => {
     const d = await owner.post(`/api/teams/${teamId}/requests/${reqId}`, { decision: "decline" });
     assert.equal(d.json.pendingRequests.length, 0);
     assert.equal((await stranger.get(`/api/teams/${teamId}`)).json.viewerState, "none");
+    const again = await stranger.post(`/api/teams/${teamId}/requests`, { message: "please?" });
+    assert.equal(again.status, 429, "a declined requester waits a day before asking again");
+    assert.ok(!testOutbox.some((m) => m.to === "stranger@teams.test"), "unconfirmed addresses get no notifications");
   });
 
   it("owner can remove a member and cannot shrink below member count", async () => {

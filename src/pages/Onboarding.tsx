@@ -20,6 +20,14 @@ export const GRAD_YEARS = Array.from({ length: 10 }, (_, i) => year - 2 + i);
 
 export default function Onboarding() {
   const { data: me } = useMe();
+  const r = me!.recovery;
+  // Re-initialise the form when restored details are added or removed (Start fresh / restore again).
+  const key = r.state === "restored" ? `restored-${r.restoredAt}` : r.state;
+  return <OnboardingForm key={key} />;
+}
+
+function OnboardingForm() {
+  const { data: me } = useMe();
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const onboard = useOnboard();
@@ -35,6 +43,15 @@ export default function Onboarding() {
   const [roles, setRoles] = useState<RoleId[]>(p.roles);
   const [availability, setAvailability] = useState<Availability>(p.availability === "busy" ? "open" : p.availability);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const returning = me!.recovery.state === "restored" && me!.recovery.via !== "manual";
+  const [waVisible, setWaVisible] = useState(p.visibility.whatsapp);
+  const [xVisible, setXVisible] = useState(p.visibility.x);
+  const contacts = returning
+    ? [
+        ...(p.whatsapp ? [{ label: "WhatsApp", value: `•••• ${p.whatsapp.slice(-4)}`, visible: waVisible, onChange: setWaVisible }] : []),
+        ...(p.xHandle ? [{ label: "X", value: `@${p.xHandle}`, visible: xVisible, onChange: setXVisible }] : []),
+      ]
+    : [];
 
   const next = () => {
     if (name.trim().length < 2) return setErrors({ name: "Enter your name" });
@@ -50,8 +67,12 @@ export default function Onboarding() {
     setErrors(errs);
     if (Object.keys(errs).length) return;
     try {
-      await onboard.mutateAsync({ name: name.trim(), college: college || null, graduationYear: gradYear ? Number(gradYear) : null, skills, roles, availability });
-      if (me!.recovery.state === "empty" && !me!.recovery.acknowledged) ack.mutate(undefined);
+      await onboard.mutateAsync({
+        name: name.trim(), college: college || null, graduationYear: gradYear ? Number(gradYear) : null, skills, roles, availability,
+        ...(returning && p.whatsapp ? { whatsappVisible: waVisible } : {}),
+        ...(returning && p.xHandle ? { xVisible } : {}),
+      });
+      if ((me!.recovery.state === "empty" || me!.recovery.state === "restored") && !me!.recovery.acknowledged) ack.mutate(undefined);
       toast.success("You're in. Your profile is now discoverable.");
       const n = params.get("next");
       navigate(n && n.startsWith("/") && !n.startsWith("//") && n !== "/onboarding" ? n : "/discover", { replace: true });
@@ -76,7 +97,7 @@ export default function Onboarding() {
             <AnimatePresence mode="wait" initial={false}>
               {step === 0 ? (
                 <motion.div key="s0" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.2 }} className="space-y-6">
-                  <RecoveryNotice recovery={me!.recovery} emailEnabled={Boolean(config?.emailEnabled)} />
+                  <RecoveryNotice recovery={me!.recovery} emailEnabled={Boolean(config?.emailEnabled)} contacts={contacts} />
                   <div>
                     <p className="eyebrow">Step 1 of 2</p>
                     <h1 className="mt-3 text-h1">Let's set up your <span className="em">profile.</span></h1>

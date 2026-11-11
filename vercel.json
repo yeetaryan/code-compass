@@ -11,6 +11,19 @@
       "maxDuration": 15
     }
   },
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "(code-compass-mu\\.vercel\\.app|code-compass-.*-aryans-projects-9694c788\\.vercel\\.app)"
+        }
+      ],
+      "destination": "https://codecompass-eta.vercel.app/:path*",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/(.*)",

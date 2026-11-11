@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { SectionCard } from "@/components/ui/card";
@@ -88,6 +88,12 @@ export default function Settings() {
             <p className="text-[0.9rem] text-ink-3">Lost a device or signed in somewhere public?</p>
             <Button variant="secondary" onClick={signOutEverywhere}>Sign out other devices</Button>
           </div>
+        </SectionCard>
+
+        <SectionCard title="Your data">
+          <p className="text-[0.9rem] text-ink-3">
+            What we store, who can see it and how it's removed: <Link to="/privacy" className="font-medium text-ink underline underline-offset-4">privacy policy</Link>.
+          </p>
         </SectionCard>
 
         <SectionCard title="Delete account" description="Permanently removes your account, profile, photo, team memberships and any teams you own. This can't be undone.">
