@@ -4,6 +4,7 @@
  * Exit code 1 if anything would block or silently skip part of the import:
  *   - the schema isn't fully migrated (only a note with --allow-pending-schema, i.e. before the cutover migrates it)
  *   - a target account uses the email of a v1 account but has a different id (that v1 account would be skipped)
+ *   - the target contains demo / test-fixture accounts (they must never reach production)
  */
 import pg from "pg";
 import { readdirSync } from "node:fs";
@@ -29,9 +30,13 @@ try {
   const target = (await pool.query<{ id: string; email: string }>("SELECT id, lower(email) email FROM users")).rows;
   const byEmail = new Map(target.map((t) => [t.email, t.id]));
   const ids = new Set(target.map((t) => t.id));
+  const fixtureAccounts = target.filter((t) => /@(demo\.codecompass\.dev|fixtures\.invalid)$/.test(t.email)).length;
+  const sourceFixtures = src.filter((s) => /@(demo\.codecompass\.dev|fixtures\.invalid)$/.test(s.email)).length;
   const clashes = src.filter((s) => byEmail.has(s.email) && byEmail.get(s.email) !== s.id).length;
   const already = src.filter((s) => ids.has(s.id)).length;
-  console.log({ sourceUsers: src.length, targetUsers: target.length, alreadyImported: already, emailClashes: clashes, migrations, expectedMigrations: expected });
+  console.log({ sourceUsers: src.length, targetUsers: target.length, alreadyImported: already, emailClashes: clashes, migrations, expectedMigrations: expected, fixtureAccounts, sourceFixtures });
+  if (fixtureAccounts) problems.push(`${fixtureAccounts} demo/test-fixture account(s) in the target — this must not be production`);
+  if (sourceFixtures) problems.push(`${sourceFixtures} demo/test-fixture account(s) in the dump — wrong source file`);
   if (migrations < expected) {
     if (process.argv.includes("--allow-pending-schema")) console.log(`NOTE  schema has ${migrations}/${expected} migrations — the cutover applies the rest`);
     else problems.push(`schema has ${migrations}/${expected} migrations — run db:migrate first`);

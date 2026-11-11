@@ -44,7 +44,11 @@ Known, accepted for a side project (documented, not fixed):
 ## Not verified
 
 - Nothing of tonight's work is on GitHub/Vercel yet (needs `08-preview.ps1`).
-- The current Preview (step 07 build) wasn't tested in a browser — Chrome didn't respond earlier.
+- Current Preview (step 07 build, before tonight's changes), checked in your Chrome while signed out: `/api/health/live` 200,
+  `/api/health` 200 (DB ok, ~1.1 s cold), `/api/me`, `/api/people`, `/api/teams` all 401, `/privacy` serves the app, CSP / HSTS /
+  X-Frame-Options DENY / nosniff / Referrer-Policy / Permissions-Policy present, API `Cache-Control: no-store`.
+- Signed-in flows on the deployed Preview were **not** run by me: I don't enter passwords or create accounts on a hosted
+  `*.vercel.app` URL. They're covered locally (19 + 5 browser flows); run the checklist in the handover on the new Preview.
 - Real email delivery: `SMTP_USER`/`SMTP_PASS` are not set, so email is off everywhere.
 - The old-URL redirect only works once the old Vercel project builds the new `main` (see DEPLOYMENT.md → Old URL).
 
@@ -59,3 +63,19 @@ Known, accepted for a side project (documented, not fixed):
 ## Later (deliberately not built)
 
 Per-user email preferences · in-app messaging · report/block · admin tools · Google sign-in · analytics · custom domain + Resend (lifts Gmail's ~500/day cap).
+
+## Demo-data cleanup (11 Nov, later)
+
+| Where | What was there | Now |
+|---|---|---|
+| `src/pages/Landing.tsx` hero, Profiles, Discovery and Teams illustrations | Named fictional people (3 names, initials avatars, class years, a bio), a fictional team with a description, named join requesters | Anonymous illustrations: silhouette avatars, grey bars instead of names/bio, role and skill chips only, "Your team"; captioned "Illustration · not real profiles". Never clickable |
+| `src/pages/auth/AuthLayout.tsx` (sign-in / sign-up side panel) | Avatar stack of 4 fictional students | Role chips (Design, Frontend, …) |
+| `src/pages/Discover.tsx` empty state | "You're early" | "No other student profiles yet" + Complete your profile / Start a team |
+| `scripts/seed-demo.ts` (12 fictional people, 3 teams, real-looking LinkedIn/GitHub/X handles, could target a remote dev DB) | | Moved to `tests/e2e/seed-fixtures.ts`: localhost only (no override), refuses any DB with non-fixture accounts, `@fixtures.invalid` emails, no GitHub/X handles, one obviously-test LinkedIn slug. `npm run demo:seed` removed; `demo:reset` → `e2e:reset` |
+| `deploy-local\07-preview.ps1` | Seeded demo data into Neon dev | Seeding step removed |
+| `scripts/preflight-cutover.ts` | | Blocks the cutover if production (or the dump) contains demo/fixture accounts |
+| `scripts/remove-demo-accounts.ts` (new, `npm run demo:remove`) | | Removes only `@demo.codecompass.dev` / `@fixtures.invalid` accounts from a dev DB (`--confirm-host`, `--dry-run`); refuses any DB with imported v1 accounts |
+| README screenshots | Taken with fictional data, unlabelled | Captioned as fictional test fixtures |
+
+The 12 demo accounts still exist in the **Neon dev branch** (not production). The preview uses that branch, so they show there until removed with `demo:remove`.
+App code never had fake routes: cards link to `/people/<real id>` / `/teams/<real id>`; unknown or hidden ids show "Profile not available".

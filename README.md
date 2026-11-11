@@ -8,6 +8,8 @@ open roles.
 
 ![Landing page](docs/screenshots/landing.webp)
 
+<sub>Screenshots in this README were taken with fictional test fixtures (`tests/e2e/seed-fixtures.ts`); they are not real students.</sub>
+
 > Version 2 is a full rebuild of the original Lovable/Supabase app (launched July 2025). Existing accounts and
 > profiles are migrated with their original IDs and passwords — see [MIGRATION_REPORT.md](MIGRATION_REPORT.md).
 
@@ -61,10 +63,10 @@ scripts/
   db-migrate.ts         Apply migrations
   migrate-legacy.ts     Supabase dump → new schema (idempotent, dry-run, report)
   verify-migration.ts   16 automated checks against the original dump
-  seed-demo.ts          Fictional demo data for local development (local DBs only)
 tests/
   api.test.ts           47 API integration tests against real Postgres
   e2e/flows.mjs         19 Playwright browser flows (desktop + iPhone)
+  e2e/seed-fixtures.ts  Fictional test fixtures for the browser flows — local test DBs only, never production
 docs/AUDIT.md           Phase-1 audit of the original app and backup
 ```
 
@@ -77,7 +79,6 @@ npm install
 cp .env.example .env               # then edit DATABASE_URL and BETTER_AUTH_SECRET
 createdb cc_dev                    # or point DATABASE_URL at a Neon dev branch
 npm run db:migrate
-npm run demo:seed                  # optional: 12 fictional people + 3 teams (password: demo-password)
 npm run dev                        # web on :5173, API on :3001 (proxied at /api)
 ```
 
@@ -92,7 +93,7 @@ Password-reset and confirmation emails are printed in the API terminal when `RES
 npm run typecheck && npm run lint
 npm test                           # API tests — needs a throwaway DB: createdb cc_test (or TEST_DATABASE_URL)
 npm run build && npm run preview   # production build with the production CSP headers
-npm run demo:reset && npm run test:e2e   # browser flows (needs API on :3001 against cc_demo + Playwright)
+npm run e2e:reset && npm run test:e2e    # browser flows (needs API on :3001 against cc_e2e + Playwright)
 ```
 
 ## Environment variables

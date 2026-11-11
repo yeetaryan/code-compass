@@ -1,5 +1,5 @@
 /**
- * Browser flows against a running app (vite preview + API) seeded with scripts/seed-demo.ts.
+ * Browser flows against a running app (vite preview + API) seeded with tests/e2e/seed-fixtures.ts (local test fixtures).
  *   BASE_URL=http://localhost:5173 SHOTS=./shots node tests/e2e/flows.mjs
  * Fails on any uncaught page error or console error.
  */
@@ -191,8 +191,8 @@ await step("owner accepts request in another session; member sees group chat", a
   const op = await owner.newPage();
   watch(op, "owner");
   await op.goto(BASE + "/sign-in");
-  await op.getByLabel("Email").fill("nia@demo.codecompass.dev");
-  await op.getByLabel("Password", { exact: true }).fill("demo-password");
+  await op.getByLabel("Email").fill("nia@fixtures.invalid");
+  await op.getByLabel("Password", { exact: true }).fill("fixture-password");
   await op.getByRole("button", { name: "Sign in" }).click();
   await op.waitForURL(/\/discover/);
   await op.goto(teamUrl);

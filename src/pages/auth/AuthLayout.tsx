@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { Logo } from "@/components/app/Logo";
-import { Avatar } from "@/components/ui/avatar";
 
 export function AuthLayout({ title, subtitle, children, footer }: { title: ReactNode; subtitle?: ReactNode; children: ReactNode; footer?: ReactNode }) {
   return (
@@ -22,12 +21,12 @@ export function AuthLayout({ title, subtitle, children, footer }: { title: React
             <p className="font-display text-[2.4rem] leading-[1.1] font-semibold tracking-[-0.03em] text-balance">
               The right team turns an idea into <span className="em">something real.</span>
             </p>
-            <div className="mt-10 flex items-center gap-3">
-              <span className="flex -space-x-2.5">
-                {["Aarav M", "Sara I", "Kabir R", "Nia P"].map((n) => <Avatar key={n} name={n} size={36} className="ring-2 ring-subtle" />)}
-              </span>
-              <span className="text-[0.88rem] text-ink-3">Designers, engineers, researchers and founders — all students.</span>
+            <div className="mt-10 flex flex-wrap items-center gap-2">
+              {["Design", "Frontend", "Backend", "AI / ML", "Hardware", "Product"].map((r) => (
+                <span key={r} className="rounded-full border border-line-strong bg-surface px-3 py-1 text-[0.8rem] text-ink-2">{r}</span>
+              ))}
             </div>
+            <p className="mt-3 text-[0.88rem] text-ink-3">Find designers, engineers, researchers and founders — all students.</p>
           </div>
         </div>
       </aside>

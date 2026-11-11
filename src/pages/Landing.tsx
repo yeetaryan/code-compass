@@ -1,9 +1,8 @@
-import { ArrowRight, BriefcaseBusiness, Check, Eye, EyeOff, Lock, MessageCircle, Search, Sparkles, UsersRound } from "lucide-react";
+import { ArrowRight, BriefcaseBusiness, Check, Eye, EyeOff, Lock, MessageCircle, Search, Sparkles, UserRound, UsersRound } from "lucide-react";
 import { motion, type Variants } from "motion/react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Logo } from "@/components/app/Logo";
-import { Avatar } from "@/components/ui/avatar";
 import { buttonVariants } from "@/components/ui/button";
 import { Tag } from "@/components/ui/tag";
 import { useMe } from "@/lib/queries";
@@ -22,22 +21,35 @@ function Reveal({ children, className, i = 0 }: { children: ReactNode; className
   );
 }
 
-/* ───────────── Illustrative product mockups (fictional people, clearly labelled) ───────────── */
+/* ───────────── Product illustrations ─────────────
+   Anonymous on purpose: no names, photos, colleges or class years — no fictional people. Never clickable. */
 
 const SAMPLE = [
-  { name: "Aarav Mehta", meta: "Class of 2027", roles: "Backend · DevOps", skills: ["Go", "PostgreSQL", "Docker"], match: "Covers Backend, DevOps", status: "Looking" },
-  { name: "Sara Iqbal", meta: "Class of 2026", roles: "Design (UI/UX)", skills: ["Figma", "Prototyping", "Motion"], match: "Shares AI/ML · Covers Design", status: "Looking" },
-  { name: "Kabir Rao", meta: "Class of 2028", roles: "AI / ML", skills: ["PyTorch", "OpenCV", "Python"], match: "Shares Computer Vision", status: "Open" },
+  { roles: "Backend · DevOps", skills: ["Go", "PostgreSQL", "Docker"], match: "Covers Backend, DevOps", status: "Looking" },
+  { roles: "Design (UI/UX)", skills: ["Figma", "Prototyping", "Motion"], match: "Shares AI/ML · Covers Design", status: "Looking" },
+  { roles: "AI / ML", skills: ["PyTorch", "OpenCV", "Python"], match: "Shares Computer Vision", status: "Open" },
 ];
+
+/** Placeholder avatar: a silhouette, never initials. */
+function Silhouette({ size = 38, className }: { size?: number; className?: string }) {
+  return (
+    <span className={cn("grid shrink-0 place-items-center rounded-full border border-line bg-subtle text-ink-4", className)} style={{ width: size, height: size }} aria-hidden>
+      <UserRound style={{ width: size * 0.5, height: size * 0.5 }} />
+    </span>
+  );
+}
+
+/** Grey bar standing in for text (a name, a line of bio). */
+const Bar = ({ className }: { className?: string }) => <span className={cn("block h-2.5 rounded-full bg-line", className)} aria-hidden />;
 
 function MiniPerson({ p, className }: { p: (typeof SAMPLE)[number]; className?: string }) {
   return (
     <div className={cn("rounded-2xl border border-line bg-surface p-4 shadow-sm", className)}>
       <div className="flex items-center gap-3">
-        <Avatar name={p.name} size={38} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-display text-[0.95rem] font-semibold tracking-tight">{p.name}</p>
-          <p className="truncate text-[0.76rem] text-ink-3">{p.meta}</p>
+        <Silhouette size={38} />
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <Bar className="w-28" />
+          <Bar className="w-16 bg-line/70" />
         </div>
       </div>
       <p className="mt-3 flex items-center justify-between gap-2 text-[0.8rem] text-ink-2">
@@ -59,8 +71,8 @@ function MiniPerson({ p, className }: { p: (typeof SAMPLE)[number]; className?: 
 
 function HeroPreview() {
   return (
-    <div className="relative pb-6 sm:pb-12" aria-label="Illustrative preview of the discovery screen" role="img">
-      <p className="mb-3 text-right text-[0.72rem] text-ink-4">Illustrative preview · people shown are fictional</p>
+    <div className="relative pb-6 sm:pb-12" aria-label="Illustration of the Discover screen" role="img">
+      <p className="mb-3 text-right text-[0.72rem] text-ink-4">Illustration · not real profiles</p>
       <div className="absolute -inset-6 -z-10 rounded-[32px] bg-gradient-to-b from-subtle to-transparent" />
       <div className="overflow-hidden rounded-[var(--radius-panel)] border border-line bg-canvas shadow-lg">
         <div className="flex items-center gap-2 border-b border-line bg-surface px-4 py-3">
@@ -93,11 +105,11 @@ function HeroPreview() {
         className="absolute -bottom-2 -left-4 hidden w-64 rounded-2xl border border-line bg-surface p-4 shadow-lg sm:block lg:-left-10"
       >
         <p className="text-[0.7rem] font-medium tracking-wide text-ink-4 uppercase">Team forming</p>
-        <p className="mt-1 font-display font-semibold tracking-tight">Campus Commute</p>
+        <p className="mt-1 font-display font-semibold tracking-tight">Your hackathon team</p>
         <p className="mt-1 text-[0.76rem] text-ink-3">Needs a designer and an ML engineer</p>
         <div className="mt-3 flex items-center justify-between">
           <span className="flex -space-x-2">
-            {["N P", "J T", "M K"].map((n) => <Avatar key={n} name={n} size={26} className="ring-2 ring-surface" />)}
+            {[0, 1, 2].map((i) => <Silhouette key={i} size={26} className="ring-2 ring-surface" />)}
           </span>
           <span className="rounded-full bg-moss-soft px-2.5 py-1 text-[0.7rem] font-medium text-moss">2 spots open</span>
         </div>
@@ -231,7 +243,7 @@ function Feature({ eyebrow, title, body, points, visual, flip }: { eyebrow: stri
       </Reveal>
       <Reveal i={1} className={cn(flip && "lg:order-1")}>
         <div className="rounded-[var(--radius-panel)] border border-line bg-subtle p-5 sm:p-8">{visual}</div>
-        <p className="mt-2 text-right text-[0.72rem] text-ink-4">Illustrative example · people shown are fictional</p>
+        <p className="mt-2 text-right text-[0.72rem] text-ink-4">Illustration · not a real profile or team</p>
       </Reveal>
     </div>
   );
@@ -239,15 +251,18 @@ function Feature({ eyebrow, title, body, points, visual, flip }: { eyebrow: stri
 
 function ProfileVisual() {
   return (
-    <div className="rounded-2xl border border-line bg-surface p-5 shadow-md sm:p-6" role="img" aria-label="Illustrative student profile">
+    <div className="rounded-2xl border border-line bg-surface p-5 shadow-md sm:p-6" role="img" aria-label="Illustration of a student profile">
       <div className="flex items-center gap-4">
-        <Avatar name="Sara Iqbal" size={56} />
-        <div>
-          <p className="font-display text-[1.15rem] font-semibold tracking-tight">Sara Iqbal</p>
-          <p className="text-[0.82rem] text-ink-3">B.Des · Class of 2026</p>
+        <Silhouette size={56} />
+        <div className="space-y-2">
+          <Bar className="h-3 w-36" />
+          <Bar className="w-24 bg-line/70" />
         </div>
       </div>
-      <p className="mt-4 text-[0.9rem] leading-relaxed text-ink-2">Product designer who likes turning messy hackathon ideas into something people can actually use.</p>
+      <div className="mt-5 space-y-2" aria-hidden>
+        <Bar className="w-full bg-line/70" />
+        <Bar className="w-4/5 bg-line/70" />
+      </div>
       <div className="mt-4 flex flex-wrap gap-1.5">{["Figma", "Design systems", "Prototyping", "React"].map((s) => <Tag key={s}>{s}</Tag>)}</div>
       <div className="mt-5 flex flex-wrap gap-2 border-t border-line pt-4">
         <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-ink px-3 text-[0.78rem] font-medium text-canvas"><BriefcaseBusiness className="size-3.5" />LinkedIn</span>
@@ -259,7 +274,7 @@ function ProfileVisual() {
 
 function MatchVisual() {
   return (
-    <div className="space-y-3" role="img" aria-label="Illustrative discovery results">
+    <div className="space-y-3" role="img" aria-label="Illustration of discovery results">
       <MiniPerson p={SAMPLE[1]} className="shadow-md" />
       <MiniPerson p={SAMPLE[2]} className="opacity-90" />
     </div>
@@ -268,20 +283,23 @@ function MatchVisual() {
 
 function TeamVisual() {
   return (
-    <div className="rounded-2xl border border-line bg-surface p-5 shadow-md sm:p-6" role="img" aria-label="Illustrative team page">
+    <div className="rounded-2xl border border-line bg-surface p-5 shadow-md sm:p-6" role="img" aria-label="Illustration of a team page">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="font-display text-[1.1rem] font-semibold tracking-tight">Campus Commute</p>
+          <p className="font-display text-[1.1rem] font-semibold tracking-tight">Your team</p>
           <p className="text-[0.8rem] text-ink-3">Weekend hackathon · 48 hours</p>
         </div>
         <Tag tone="moss">Recruiting</Tag>
       </div>
-      <p className="mt-3 text-[0.88rem] leading-relaxed text-ink-2">A shared ride planner for students living off campus. Backend is underway — we need help with the app and the route model.</p>
+      <div className="mt-4 space-y-2" aria-hidden>
+        <Bar className="w-full bg-line/70" />
+        <Bar className="w-3/4 bg-line/70" />
+      </div>
       <div className="mt-4 flex flex-wrap gap-1.5"><Tag tone="accent">Design (UI/UX)</Tag><Tag tone="accent">AI / ML</Tag><Tag>Flutter</Tag></div>
       <div className="mt-5 space-y-2 border-t border-line pt-4">
-        {[["Kabir Rao", "wants to join · AI / ML"], ["Sara Iqbal", "wants to join · Design"]].map(([n, d]) => (
-          <div key={n} className="flex items-center justify-between gap-3">
-            <span className="flex items-center gap-2.5 text-[0.84rem]"><Avatar name={n} size={28} /><span><b className="font-medium">{n}</b> <span className="text-ink-3">{d}</span></span></span>
+        {["AI / ML", "Design"].map((role) => (
+          <div key={role} className="flex items-center justify-between gap-3">
+            <span className="flex items-center gap-2.5 text-[0.84rem]"><Silhouette size={28} /><span className="text-ink-3">Request to join · {role}</span></span>
             <span className="rounded-full bg-ink px-3 py-1 text-[0.72rem] font-medium text-canvas">Accept</span>
           </div>
         ))}

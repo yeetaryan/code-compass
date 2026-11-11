@@ -1,6 +1,6 @@
 /**
  * Manual end-to-end check of password reset over real SMTP, using a local capture server.
- *   DATABASE_URL=<local db with demo data> npx tsx tests/manual/smtp-reset-flow.ts
+ *   DATABASE_URL=<local db seeded by tests/e2e/seed-fixtures.ts> npx tsx tests/manual/smtp-reset-flow.ts
  */
 import { SMTPServer } from "smtp-server";
 
@@ -37,7 +37,7 @@ const { createApp } = await import("../../server/app.js");
 const app = createApp();
 const H = { origin: "http://localhost:5173", "content-type": "application/json" };
 const post = (p: string, b: unknown) => app.request(`http://localhost${p}`, { method: "POST", headers: H, body: JSON.stringify(b) });
-const email = "aarav@demo.codecompass.dev";
+const email = "aarav@fixtures.invalid";
 const waitFor = async (n: number) => {
   for (let i = 0; i < 100 && inbox.length < n; i++) await new Promise((r) => setTimeout(r, 50));
 };
@@ -64,7 +64,7 @@ const token = new URL(loc).searchParams.get("token")!;
 
 const r3 = await post("/api/auth/reset-password", { token, newPassword: "a-brand-new-pass-7" });
 check("new password accepted", r3.status === 200);
-check("old password rejected", (await post("/api/auth/sign-in/email", { email, password: "demo-password" })).status === 401);
+check("old password rejected", (await post("/api/auth/sign-in/email", { email, password: "fixture-password" })).status === 401);
 check("new password signs in", (await post("/api/auth/sign-in/email", { email, password: "a-brand-new-pass-7" })).status === 200);
 check("token can't be reused", (await post("/api/auth/reset-password", { token, newPassword: "another-pass-88" })).status !== 200);
 
@@ -74,13 +74,13 @@ console.log(`      (unknown email answered in ${Date.now() - t1} ms)`);
 await new Promise((r) => setTimeout(r, 500));
 check("unknown email gets the same 200 and no mail", r4.status === 200 && inbox.length === 1);
 
-// restore the demo password
+// restore the fixture password
 const r5 = await post("/api/auth/request-password-reset", { email, redirectTo: "http://localhost:5173/reset-password" });
 await waitFor(2);
 const t2 = (inbox[1] ?? "").replace(/=\r?\n/g, "").replace(/=3D/g, "=").match(/reset-password\/([A-Za-z0-9_-]+)/)?.[1];
 const back = await app.request(`http://localhost/api/auth/reset-password/${t2}?callbackURL=/reset-password`, { redirect: "manual" });
-await post("/api/auth/reset-password", { token: new URL(back.headers.get("location")!, "http://x").searchParams.get("token"), newPassword: "demo-password" });
-check("demo password restored", r5.status === 200 && (await post("/api/auth/sign-in/email", { email, password: "demo-password" })).status === 200);
+await post("/api/auth/reset-password", { token: new URL(back.headers.get("location")!, "http://x").searchParams.get("token"), newPassword: "fixture-password" });
+check("fixture password restored", r5.status === 200 && (await post("/api/auth/sign-in/email", { email, password: "fixture-password" })).status === 200);
 
 server.close();
 process.exit(0);

@@ -21,10 +21,10 @@
     "legacy:migrate": "tsx --env-file-if-exists=.env scripts/migrate-legacy.ts",
     "legacy:verify": "tsx --env-file-if-exists=.env scripts/verify-migration.ts",
     "test:e2e": "node tests/e2e/flows.mjs",
-    "demo:reset": "bash tests/e2e/reset-demo.sh",
-    "demo:seed": "tsx --env-file-if-exists=.env scripts/seed-demo.ts",
+    "e2e:reset": "bash tests/e2e/reset-db.sh",
     "legacy:export": "tsx --env-file-if-exists=.env scripts/export-supabase.ts",
     "legacy:compare": "tsx scripts/compare-dumps.ts",
+    "demo:remove": "tsx --env-file-if-exists=.env scripts/remove-demo-accounts.ts",
     "legacy:preflight": "tsx --env-file-if-exists=.env scripts/preflight-cutover.ts"
   },
   "dependencies": {

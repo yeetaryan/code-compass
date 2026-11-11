@@ -174,8 +174,17 @@ export default function Discover() {
               Try fewer skills, a different role, or a broader search.
             </EmptyState>
           ) : (
-            <EmptyState icon={<UsersRound />} title="You're early" action={<Link to="/teams/new" className={buttonVariants()}>Start a team</Link>}>
-              No other profiles are discoverable yet. Post a team so people can find you as they join.
+            <EmptyState
+              icon={<UsersRound />}
+              title="No other student profiles yet"
+              action={
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Link to="/profile" className={buttonVariants()}>Complete your profile</Link>
+                  <Link to="/teams/new" className={buttonVariants({ variant: "secondary" })}>Start a team</Link>
+                </div>
+              }
+            >
+              You're one of the first here. A complete profile — skills, roles and a way to reach you — is what classmates see when they join, so share Code Compass with them.
             </EmptyState>
           )
         ) : (
